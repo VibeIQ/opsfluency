@@ -1,4 +1,4 @@
-Copyright (c) 2026 OpsFluency&trade. All rights reserved.
+Copyright (c) 2026 OpsFluency&trade;. All rights reserved.
 
 This software and its source code are proprietary and confidential.
 Unauthorized copying, modification, distribution, or use of this
