@@ -26,8 +26,8 @@ begin;
 
 create or replace function debug_whoami()
 returns table (
-  session_user           text,
-  current_user           text,
+  pg_session_user        text,
+  pg_current_user        text,
   auth_role              text,
   auth_uid               uuid,
   jwt_sub                text,
