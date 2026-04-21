@@ -1,7 +1,23 @@
 # TODOS — OpsFluency
 
 > Living doc. Track pending work here so fresh sessions can pick up without re-auditing.
-> Last updated: 2026-04-20 (+ SOP status lifecycle, Commands section, Server Components default, Development Workflow rewrite, package.json rename, tsconfig ES2022, PRD link)
+> Last updated: 2026-04-21 (Phase 1 closed: docs, skills, DECIDE items, tokenization pass)
+
+---
+
+## Phase plan (audit closure)
+
+Five-phase plan, one PR each, stacked on `main`. See branch `claude/audit-codebase-guidelines-oump0` and descendants.
+
+| Phase | Branch | Status |
+|---|---|---|
+| 1. Docs & skills cleanup + tokenization | `claude/audit-codebase-guidelines-oump0` | **In progress** (this PR) |
+| 2. Starter residue removal | TBD | Pending |
+| 3. Dependencies & env vars | TBD | Pending |
+| 4. `lib/` scaffolding (supabase, auth, types, ai) | TBD | Pending |
+| 5. First migration (companies, company_members, RLS, default depts) | TBD | Pending |
+
+Phase 6+ (real product build) begins after Phase 5.
 
 ---
 
@@ -21,20 +37,18 @@ The codebase audit surfaced gaps in `CLAUDE.md` that will cause incorrect code g
 - [x] **Add a `## Commands` section.** Added right after Tech Stack in `CLAUDE.md` with `npm run dev` / `npm run build` / `npm run lint` / `npx tsc --noEmit`. Noted that `npx tsc --noEmit` is required after any non-trivial TypeScript change and that `@ts-ignore` / `any` are not acceptable suppressions. `npm test` deferred until a test runner is picked.
 - [x] **Pick a validation library + canonical API route example.** Zod added to the tech stack. `CLAUDE.md` now has a "Server Code Patterns" section with a shared `lib/auth/company-context.ts` helper (`AuthError` with `UNAUTHENTICATED` / `NO_COMPANY` / `FORBIDDEN`), plus a canonical Server Action and a canonical external API route — both Zod-validated. Error envelope `{ error: { code, message?, details? } }` is documented with a status-code table (400 `INVALID_INPUT`, 401 `UNAUTHENTICATED`, 403 `NO_COMPANY` / `FORBIDDEN`, 404 `NOT_FOUND`, 500 `INTERNAL`).
 - [x] **Enumerate the SOP status lifecycle.** Picked the proposal: `draft → pending_terms → pending_translation → pending_approval → published → archived`. New "SOP status lifecycle" subsection in `CLAUDE.md` spells out each transition, the `CHECK` constraint + `lib/types/sop.ts` rule, that transitions are guarded by reading the current status in the same Server Action transaction, that `archived` is terminal, and that English edits create a new `sop_versions` row + set `needs_retranslation = true` without flipping `sops.status`.
-- [ ] **Document the re-translation flag.** English edits must mark Spanish as stale. Proposal (_DECIDE:_): `needs_retranslation BOOLEAN NOT NULL DEFAULT FALSE` on `sop_versions`, cleared when manager re-approves Spanish.
-- [ ] **Document the department-seeding mechanism.** "Seed 4 defaults on company creation" — where does the code live? Proposal (_DECIDE:_): run inside the company creation Server Action that fires on first sign-up, not a Postgres trigger (easier to test, visible in code).
-- [ ] **Monitor + worker public route auth.** Neither is a logged-in human flow:
-  - Monitor displays (_DECIDE:_): paired monitor emits a signed token stored in a cookie at pairing time; the `/monitor/[id]` route validates the token server-side.
-  - QR scan landing (_DECIDE:_): scan lands on `/s/[qr_code_id]` which is public and redirects to `/app/sop/[id]` requiring a worker magic-link session. If unauthenticated, redirect to sign-in and preserve the intended SOP.
+- [x] **Document the re-translation flag.** `sop_versions.needs_retranslation BOOLEAN NOT NULL DEFAULT FALSE`, set on English edit, cleared on re-approval. Documented in `CLAUDE.md` → "SOP status lifecycle".
+- [x] **Document the department-seeding mechanism.** Server Action on company creation (not Postgres trigger). Idempotent via `ON CONFLICT DO NOTHING`. Documented in `CLAUDE.md` → "Departments".
+- [x] **Monitor + worker public route auth.** Documented in `CLAUDE.md` → "Auth proxy":
+  - Monitor: signed HttpOnly `opsf_monitor` cookie issued at pairing, signed with `MONITOR_COOKIE_SECRET`, validated on every `/monitor/[id]` request.
+  - QR scan: `/s/[qr_code_id]` is public, resolves to current `published` SOP, redirects through sign-in while preserving SOP id if no worker session.
 
 ### Missing conventions that will cause drift
 
 - [x] **Server Components vs `"use client"` default.** New "Default to Server Components" subsection in `CLAUDE.md` under Key Architectural Decisions. Lists the exact opt-in triggers (React hooks, browser APIs, interactive event handlers, third-party dependents) and requires pushing interactive subtrees into small `*Client.tsx` children when the parent doesn't itself need the client runtime.
 - [x] **Data fetching pattern.** Picked: Server Components read Supabase directly via `getRequestClient(userId)`; session-authed mutations are Server Actions; `/api` is strictly reserved for external/non-session callers (webhooks, monitor heartbeat, QR scan logging, cron). Documented in a new "Data fetching" subsection under Key Architectural Decisions in `CLAUDE.md`.
-- [ ] **Supabase Storage buckets.** Name them and document signed URL TTLs:
-  - `sop-uploads` — original docs, private, signed URLs (1h) for manager review
-  - `company-logos` — public bucket, logos for QR print headers
-- [ ] **QR URL shape.** Proposal (_DECIDE:_): `${NEXT_PUBLIC_APP_URL}/s/[qr_code_id]`. The `qr_code_id` is the `qr_codes.id` (UUID), permanent, never the `sop_id`. Archive returns a friendly 410 page, not a 404.
+- [x] **Supabase Storage buckets.** `sop-uploads` (private, 1h signed URLs, path `${company_id}/${sop_id}/${filename}`) + `company-logos` (public). Documented in `CLAUDE.md` → "Supabase Storage buckets".
+- [x] **QR URL shape.** `${NEXT_PUBLIC_APP_URL}/s/<qr_codes.id>`, permanent, never `sop_id`. Archive returns 410 with a friendly page. Documented in `CLAUDE.md` → "QR Codes are Permanent".
 - [x] **AI call conventions.** New "AI call conventions" subsection under the Sonnet section in `CLAUDE.md`. Covers 60s hard timeout via `AbortController`, 1 retry on 429/5xx with jittered backoff (500–1500ms), `JSON.parse` wrapped in try/catch returning `AI_PARSE_FAILURE` with no auto-retry, `ai_call_log` row for every Anthropic call (`model`, `input_tokens`, `output_tokens`, `sop_id`, `company_id`, `duration_ms`), and a rule that all Sonnet calls go through `lib/ai/sonnet.ts` rather than the Anthropic SDK directly.
 
 ### Remove / reconcile existing lines
@@ -54,9 +68,9 @@ The codebase audit surfaced gaps in `CLAUDE.md` that will cause incorrect code g
 ### Nice-to-haves for CLAUDE.md
 
 - [x] Link `PRD.md` explicitly (`./PRD.md`) where schema details are cited. Updated in the "Supabase Tables (MVP)" section of `CLAUDE.md`.
-- [ ] Add `## Git Workflow`: branch naming (`claude/<task>-<slug>`), Conventional Commits, Vercel preview URL per PR.
-- [ ] Add concrete accessibility testing commands (axe CLI, Lighthouse CI) rather than only stating the rules.
-- [ ] Note Prettier/ESLint config once chosen.
+- [x] Git workflow documented in-line in the expanded `## Development Workflow` section: branch naming, Conventional Commits, draft PRs, squash-merge, preview URL.
+- [x] Accessibility testing commands (axe CLI + Lighthouse) added to `## Accessibility Requirements`.
+- [x] Lint/format note added — ESLint via `next lint` is the current config; Prettier deferred until a real style disagreement exists.
 
 ---
 
@@ -75,6 +89,27 @@ Listed here for continuity — do **not** start until CLAUDE.md is fixed, becaus
 9. **Monitor pairing + display.**
 10. **QR print layout.**
 11. **HR module** (contacts + chat).
+
+---
+
+## Phase 1 completion notes (2026-04-21)
+
+**What landed in this phase**
+
+- New `## Skills` section in `CLAUDE.md` with precedence rule (`CLAUDE.md` wins over any skill).
+- All remaining `_DECIDE:_` items closed (re-translation flag, dept seeding, monitor auth, QR auth, storage buckets, QR URL shape, git workflow, a11y commands, lint note).
+- `opsfluency-sop-pipeline` SKILL.md aligned with `CLAUDE.md`'s 6-state lifecycle; removed bogus `active`/`expired` states and `translation_status` field; updated QR/version/storage rules.
+- Tokenization pass: shortened the three OpsFluency skill descriptions (~225 → ~85 words combined); trimmed the Sonnet prompt code block in `CLAUDE.md` (~30 lines → ~10); deleted four redundant general-purpose skills (`frontend-ui-ux`, `ui-ux-pro-max`, `web-design-guidelines`, `web-quality-skills`).
+- `MONITOR_COOKIE_SECRET` added to the env vars list.
+
+**Baseline token budget**
+
+Per-turn fixed cost is now roughly:
+- `CLAUDE.md` full content: ~7.5K tokens (further trim possible in Phase 4 once `lib/` files exist and can replace the inline examples).
+- Skill descriptions (10 skills): ~1K tokens.
+- **Total baseline: ~8.5K tokens per turn**, down from ~10K.
+
+Further token savings deferred to Phase 4 — the big remaining block is the inline `getCompanyContext`, Server Action, and API route code examples (~120 lines combined), which become redundant once the real files exist.
 
 ---
 
