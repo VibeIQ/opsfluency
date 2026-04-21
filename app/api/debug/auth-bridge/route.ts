@@ -106,6 +106,66 @@ export async function GET(request: Request) {
     }
   }
 
+  // Call debug_whoami() via the JWT client to see what Postgres thinks the
+  // current session role/user is. If `auth_role` comes back as 'anon' while
+  // the token above is valid, Supabase isn't accepting the JWT at all
+  // (usually because PostgREST couldn't fetch JWKS from the issuer).
+  let whoami: unknown = null;
+  let whoamiError: string | null = null;
+  try {
+    const userClient = await getRequestClient();
+    const { data, error } = await userClient.rpc("debug_whoami");
+    if (error) whoamiError = `${error.code ?? ""} ${error.message}`.trim();
+    else whoami = Array.isArray(data) ? data[0] : data;
+  } catch (e) {
+    whoamiError = e instanceof Error ? e.message : String(e);
+  }
+
+  // Try to fetch the JWKS from the Clerk issuer. Supabase fetches this to
+  // validate JWT signatures — if it's unreachable or returns an error
+  // status, every third-party JWT from that issuer is rejected.
+  const iss =
+    claims && typeof claims === "object" && !("__error" in claims)
+      ? (claims["iss"] as string | undefined)
+      : undefined;
+  let jwksProbe: {
+    url: string;
+    status: number | null;
+    ok: boolean;
+    keyCount: number | null;
+    error: string | null;
+  } | null = null;
+  if (iss) {
+    const jwksUrl = `${iss.replace(/\/$/, "")}/.well-known/jwks.json`;
+    try {
+      const resp = await fetch(jwksUrl, { cache: "no-store" });
+      let keyCount: number | null = null;
+      if (resp.ok) {
+        try {
+          const json = (await resp.json()) as { keys?: unknown[] };
+          keyCount = Array.isArray(json.keys) ? json.keys.length : null;
+        } catch {
+          keyCount = null;
+        }
+      }
+      jwksProbe = {
+        url: jwksUrl,
+        status: resp.status,
+        ok: resp.ok,
+        keyCount,
+        error: null,
+      };
+    } catch (e) {
+      jwksProbe = {
+        url: jwksUrl,
+        status: null,
+        ok: false,
+        keyCount: null,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }
+
   // Also count all company_members and companies rows for a sanity check —
   // useful when the current user genuinely has no row but others do.
   let totalMembers: number | null = null;
@@ -178,6 +238,11 @@ export async function GET(request: Request) {
       rows: adminRows,
       error: adminError,
     },
+    whoami: {
+      result: whoami,
+      error: whoamiError,
+    },
+    jwksProbe,
     db: {
       totalMembers,
       totalCompanies,
