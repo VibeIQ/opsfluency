@@ -1,6 +1,10 @@
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 
-export default function Home() {
+export default async function Home() {
+  const { userId } = await auth();
+  const isSignedIn = Boolean(userId);
+
   return (
     <main
       id="main"
@@ -25,18 +29,29 @@ export default function Home() {
           departmental communication — one system.
         </p>
         <div className="flex items-center gap-3 pt-4">
-          <Link
-            href="/sign-in"
-            className="px-6 py-3 rounded-md bg-[var(--color-brand)] text-[#0C0E14] font-semibold hover:bg-[var(--color-brand-hover)] transition-colors"
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/dashboard"
-            className="px-6 py-3 rounded-md border border-dc-edge text-dc-text hover:bg-dc-raised transition-colors"
-          >
-            Dashboard
-          </Link>
+          {isSignedIn ? (
+            <Link
+              href="/dashboard"
+              className="px-6 py-3 rounded-md bg-[var(--color-brand)] text-[#0C0E14] font-semibold hover:bg-[var(--color-brand-hover)] transition-colors"
+            >
+              Open dashboard
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/sign-up"
+                className="px-6 py-3 rounded-md bg-[var(--color-brand)] text-[#0C0E14] font-semibold hover:bg-[var(--color-brand-hover)] transition-colors"
+              >
+                Sign up
+              </Link>
+              <Link
+                href="/sign-in"
+                className="px-6 py-3 rounded-md border border-dc-edge text-dc-text hover:bg-dc-raised transition-colors"
+              >
+                Sign in
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </main>

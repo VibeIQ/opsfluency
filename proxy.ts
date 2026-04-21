@@ -6,10 +6,15 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
  * `/monitor/[id]` (authenticated by signed `opsf_monitor` cookie), and
  * `/s/[qr_code_id]` (QR scan landing that redirects through sign-in when
  * needed). See `CLAUDE.md` → "Auth proxy (proxy.ts)".
+ *
+ * `/onboarding` is protected too — it's the first-admin company-bootstrap
+ * screen and needs a Clerk session to resolve `userId` before the
+ * `bootstrap_company` RPC can attach the new member row.
  */
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/app(.*)",
+  "/onboarding(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

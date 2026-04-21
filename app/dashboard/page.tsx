@@ -1,8 +1,15 @@
-import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
+import { redirect } from "next/navigation";
+
+import { AuthError, getCompanyContext } from "@/lib/auth/company-context";
 
 export default async function DashboardPage() {
-  await auth.protect();
+  try {
+    await getCompanyContext();
+  } catch (e) {
+    if (e instanceof AuthError && e.code === "NO_COMPANY") redirect("/onboarding");
+    throw e;
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
