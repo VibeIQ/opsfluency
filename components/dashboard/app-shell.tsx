@@ -3,6 +3,7 @@
 import { UserButton, useUser } from "@clerk/nextjs";
 import { AnimatePresence, motion } from "framer-motion";
 import { Building2, ChevronLeft, ChevronRight, ChevronDown, GripVertical, LogOut } from "lucide-react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -50,16 +51,23 @@ interface AppShellProps {
 // ── Brand mark ──────────────────────────────────────────────────────────────
 
 function BrandMark() {
+  const { collapsed } = useSidebarCollapsed();
   return (
     <motion.span
       aria-hidden
-      data-slot="avatar"
-      className="relative flex items-center justify-center rounded-lg bg-(--color-brand) shadow-[0_0_12px_rgba(20,184,166,0.35)]"
+      // Only set data-slot="avatar" when expanded; in collapsed mode the
+      // SidebarItem's *:data-[slot=avatar]:size-7 rule would force 28px
+      // which overflows the narrow sidebar. Without the slot, we control
+      // size explicitly.
+      {...(!collapsed ? { "data-slot": "avatar" } : {})}
+      className={`relative flex items-center justify-center rounded-lg bg-(--color-brand) ${
+        collapsed ? "size-6" : ""
+      }`}
       initial={{ scale: 0.9, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
     >
-      <Building2 className="size-4 text-white" strokeWidth={2} />
+      <Building2 className={collapsed ? "size-3 text-white" : "size-4 text-white"} strokeWidth={2} />
     </motion.span>
   );
 }
@@ -143,15 +151,15 @@ function CollapseToggle() {
       onClick={toggle}
       aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      className={`flex w-full items-center gap-2 rounded-lg border border-[color:var(--dc-edge)] bg-dc-raised px-2 py-2 text-xs font-medium text-dc-text-3 transition-colors hover:bg-dc-overlay hover:text-dc-text ${
-        collapsed ? "justify-center" : ""
+      className={`flex w-full items-center gap-1.5 rounded-md border border-[color:var(--dc-edge)] bg-dc-raised py-1.5 text-xs font-medium text-dc-text-2 transition-colors hover:bg-dc-overlay hover:text-dc-text ${
+        collapsed ? "justify-center px-0" : "px-3"
       }`}
     >
       {collapsed ? (
-        <ChevronRight className="size-4 shrink-0" strokeWidth={2} />
+        <ChevronRight className="size-3.5 shrink-0" strokeWidth={2} />
       ) : (
         <>
-          <ChevronLeft className="size-4 shrink-0" strokeWidth={2} />
+          <ChevronLeft className="size-3.5 shrink-0" strokeWidth={2} />
           <span>Collapse</span>
         </>
       )}
@@ -235,7 +243,7 @@ function DraggableNavList({
         return (
           <motion.div
             key={item.href}
-            draggable
+            draggable={!collapsed}
             onDragStart={() => handleDragStart(item.href)}
             onDragOver={(e) => handleDragOver(e, item.href)}
             onDrop={() => handleDrop(item.href)}
@@ -246,20 +254,30 @@ function DraggableNavList({
             className={`group/drag-item relative transition-colors ${
               isDragOver ? "rounded-lg ring-2 ring-(--color-brand)/40 bg-(--color-brand)/5" : ""
             }`}
-            title={collapsed ? item.label : undefined}
           >
-            <SidebarItem href={item.href} current={active} centered={collapsed}>
-              <Icon data-slot="icon" strokeWidth={2} />
-              {!collapsed && (
-                <>
-                  <SidebarLabel>{item.label}</SidebarLabel>
-                  <GripVertical
-                    className="ml-auto size-3.5 shrink-0 cursor-grab text-dc-text-3 opacity-0 group-hover/drag-item:opacity-100 transition-opacity"
-                    strokeWidth={2}
-                  />
-                </>
-              )}
-            </SidebarItem>
+            {collapsed ? (
+              <Link
+                href={item.href}
+                title={item.label}
+                className={`flex w-full justify-center rounded-lg py-2.5 hover:bg-zinc-950/5 ${
+                  active ? "bg-zinc-950/5" : ""
+                }`}
+              >
+                <Icon
+                  className={`size-5 shrink-0 ${active ? "text-zinc-950" : "text-zinc-500"}`}
+                  strokeWidth={2}
+                />
+              </Link>
+            ) : (
+              <SidebarItem href={item.href} current={active}>
+                <Icon data-slot="icon" strokeWidth={2} />
+                <SidebarLabel>{item.label}</SidebarLabel>
+                <GripVertical
+                  className="ml-auto size-3.5 shrink-0 cursor-grab text-dc-text-3 opacity-0 group-hover/drag-item:opacity-100 transition-opacity"
+                  strokeWidth={2}
+                />
+              </SidebarItem>
+            )}
           </motion.div>
         );
       })}
@@ -289,12 +307,26 @@ function StaticNavList({
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.22, delay: index * 0.02, ease: "easeOut" }}
-            title={collapsed ? item.label : undefined}
           >
-            <SidebarItem href={item.href} current={active} centered={collapsed}>
-              <Icon data-slot="icon" strokeWidth={2} />
-              {!collapsed && <SidebarLabel>{item.label}</SidebarLabel>}
-            </SidebarItem>
+            {collapsed ? (
+              <Link
+                href={item.href}
+                title={item.label}
+                className={`flex w-full justify-center rounded-lg py-2.5 hover:bg-zinc-950/5 ${
+                  active ? "bg-zinc-950/5" : ""
+                }`}
+              >
+                <Icon
+                  className={`size-5 shrink-0 ${active ? "text-zinc-950" : "text-zinc-500"}`}
+                  strokeWidth={2}
+                />
+              </Link>
+            ) : (
+              <SidebarItem href={item.href} current={active}>
+                <Icon data-slot="icon" strokeWidth={2} />
+                <SidebarLabel>{item.label}</SidebarLabel>
+              </SidebarItem>
+            )}
           </motion.div>
         );
       })}
@@ -314,12 +346,14 @@ function SidebarContents({ viewer }: { viewer: Viewer }) {
     <Sidebar>
       <SidebarHeader>
         <Dropdown>
-          <DropdownButton as={SidebarItem} centered={collapsed} aria-label="Workspace menu">
+          <DropdownButton as={SidebarItem} aria-label="Workspace menu">
             <BrandMark />
             {!collapsed && (
               <>
                 <SidebarLabel>
-                  <span className={brandNameClasses}>{appDisplayName}</span>
+                  <span className={brandNameClasses}>
+                    OPS<span className="text-(--color-brand)">FLUENCY</span>
+                  </span>
                 </SidebarLabel>
                 <ChevronDown data-slot="icon" strokeWidth={2} />
               </>
@@ -367,10 +401,20 @@ function SidebarContents({ viewer }: { viewer: Viewer }) {
                   key={item.href}
                   title={collapsed ? item.label : undefined}
                 >
-                  <SidebarItem href={item.href} centered={collapsed}>
-                    <Icon data-slot="icon" strokeWidth={2} />
-                    {!collapsed && <SidebarLabel>{item.label}</SidebarLabel>}
-                  </SidebarItem>
+                  {collapsed ? (
+                    <Link
+                      href={item.href}
+                      title={item.label}
+                      className="flex w-full justify-center rounded-lg py-2.5 hover:bg-zinc-950/5"
+                    >
+                      <Icon className="size-5 shrink-0 text-zinc-500" strokeWidth={2} />
+                    </Link>
+                  ) : (
+                    <SidebarItem href={item.href}>
+                      <Icon data-slot="icon" strokeWidth={2} />
+                      <SidebarLabel>{item.label}</SidebarLabel>
+                    </SidebarItem>
+                  )}
                 </div>
               );
             })}
