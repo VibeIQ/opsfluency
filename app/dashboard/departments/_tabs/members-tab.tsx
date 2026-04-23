@@ -6,10 +6,7 @@ import {
   assignMemberToDepartment,
   removeMemberFromDepartment,
 } from "@/app/dashboard/departments/_actions/members";
-import {
-  DEPT_COLORS,
-  DEPT_ICONS,
-} from "@/app/dashboard/departments/_lib/constants";
+import { DEPT_ICONS } from "@/app/dashboard/departments/_lib/constants";
 import { Heading } from "@/components/ui/heading";
 import { Text } from "@/components/ui/text";
 import { getCompanyContext } from "@/lib/auth/company-context";
@@ -21,7 +18,7 @@ interface Props {
 interface DeptRow {
   id: string;
   name: string;
-  color_key: string;
+  color_hex: string;
   icon_key: string;
 }
 
@@ -43,9 +40,10 @@ async function loadDepts(
 ): Promise<DeptRow[]> {
   const { data, error } = await supabase
     .from("departments")
-    .select("id, name, color_key, icon_key")
+    .select("id, name, color_hex, icon_key")
     .eq("company_id", company_id)
-    .order("name", { ascending: true });
+    .order("sort_order", { ascending: true })
+    .order("name",       { ascending: true });
   if (error) throw error;
   return data ?? [];
 }
@@ -123,12 +121,7 @@ export async function MembersTab({ selectedDeptId }: Props) {
         ) : (
           <ul className="divide-y divide-[color:var(--dc-edge)]">
             {depts.map((dept) => {
-              const colorKey =
-                dept.color_key in DEPT_COLORS
-                  ? (dept.color_key as keyof typeof DEPT_COLORS)
-                  : "zinc";
               const iconKey = dept.icon_key in DEPT_ICONS ? dept.icon_key : "building-2";
-              const { bg } = DEPT_COLORS[colorKey];
               const { Icon } = DEPT_ICONS[iconKey];
               const isActive = dept.id === selectedDeptId;
 
@@ -136,12 +129,13 @@ export async function MembersTab({ selectedDeptId }: Props) {
                 <li key={dept.id}>
                   <a
                     href={`/dashboard/departments?tab=members&dept=${dept.id}`}
-                    className={`flex items-center gap-3 px-4 py-3 text-sm hover:bg-dc-overlay ${
-                      isActive ? "bg-dc-overlay font-medium text-dc-text" : "text-dc-text-2"
+                    className={`flex items-center gap-3 px-4 py-3 text-sm font-medium hover:bg-dc-overlay ${
+                      isActive ? "bg-dc-overlay text-dc-text" : "text-dc-text-2"
                     }`}
                   >
                     <div
-                      className={`flex size-7 shrink-0 items-center justify-center rounded-full ${bg}`}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-full"
+                      style={{ backgroundColor: dept.color_hex }}
                     >
                       <Icon className="size-3.5 text-white" strokeWidth={2} />
                     </div>
