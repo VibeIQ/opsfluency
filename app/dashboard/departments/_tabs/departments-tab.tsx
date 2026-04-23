@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { Info, Plus } from "lucide-react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createDepartment } from "@/app/dashboard/departments/_actions/departments";
@@ -94,9 +94,35 @@ export async function DepartmentsTab({ editing }: Props) {
     <section className="flex flex-col gap-8 max-w-3xl">
       {/* Department list — client component handles drag-to-reorder and inline editing */}
       <div>
-        <Heading level={2} className="font-display text-xl">
-          All departments
-        </Heading>
+        <div className="flex items-center gap-2">
+          <Heading level={2} className="font-display text-xl">
+            All departments
+          </Heading>
+          {/* CSS-only tooltip — no JS needed */}
+          <div className="group relative flex items-center">
+            <Info className="size-4 cursor-help text-dc-text-3 hover:text-dc-text-2" strokeWidth={1.75} />
+            <div className="pointer-events-none absolute left-6 top-0 z-20 hidden w-64 rounded-lg border border-[color:var(--dc-edge)] bg-dc-surface p-3 shadow-lg group-hover:block">
+              <ul className="flex flex-col gap-2 text-xs text-dc-text-2">
+                <li className="flex gap-2">
+                  <span className="mt-px shrink-0">⠿</span>
+                  <span>Drag the handle on any row to reorder departments.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="mt-px shrink-0">✏️</span>
+                  <span>Edit any department to change its name, colour, or icon.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="mt-px shrink-0">🏷️</span>
+                  <span>HR is a system department — it cannot be renamed or deleted.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="mt-px shrink-0">🗑️</span>
+                  <span>A department can only be deleted when it has no assigned members.</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
         <DepartmentListClient
           depts={depts}
           countByDeptId={countByDeptId}
