@@ -51,7 +51,12 @@ interface TenantRollup {
   company_id: string;
   company_name: string | null;
   calls: number;
-  estimated_cost: number;
+  /** Cost attributable to token-billed providers (Anthropic). */
+  anthropic_cost: number;
+  /** Cost attributable to character-billed providers (Google Translate). */
+  google_cost: number;
+  /** Sum of the per-vendor costs — also the table's sort key. */
+  total_cost: number;
 }
 
 interface UsageData {
@@ -140,10 +145,17 @@ async function loadUsage(): Promise<UsageData> {
         company_id: tKey,
         company_name: null,
         calls: 0,
-        estimated_cost: 0,
+        anthropic_cost: 0,
+        google_cost: 0,
+        total_cost: 0,
       };
       t.calls += 1;
-      t.estimated_cost += cost;
+      // Split tenant spend by vendor so abuse jumps out — a tenant
+      // suddenly burning Google chars while their Sonnet usage is
+      // flat is a different problem from one calling convert in a loop.
+      if (r.unit_kind === "token") t.anthropic_cost += cost;
+      else t.google_cost += cost;
+      t.total_cost += cost;
       tenantMap.set(tKey, t);
     }
   }
@@ -157,7 +169,7 @@ async function loadUsage(): Promise<UsageData> {
   );
 
   const topTenantRollups = Array.from(tenantMap.values())
-    .sort((a, b) => b.estimated_cost - a.estimated_cost)
+    .sort((a, b) => b.total_cost - a.total_cost)
     .slice(0, 5);
 
   if (topTenantRollups.length) {
@@ -244,25 +256,28 @@ export async function AiUsageTab() {
         />
       </div>
 
-      {/* Per-unit breakdown — split, since tokens and characters don't compose. */}
+      {/* Per-unit breakdown — both cards always render so the row stays
+          balanced even before the first translation lands. The kind
+          with no data shows muted zeros so it's clear logging is wired
+          and just waiting for activity. */}
       {(hasTokens || hasChars) && (
         <div className="grid gap-3 sm:grid-cols-2">
-          {hasTokens && (
-            <UnitBreakdown
-              title="Tokens"
-              icon={<Cpu className="size-4" strokeWidth={2} />}
-              input={data.totalInputTokens}
-              output={data.totalOutputTokens}
-            />
-          )}
-          {hasChars && (
-            <UnitBreakdown
-              title="Characters"
-              icon={<Languages className="size-4" strokeWidth={2} />}
-              input={data.totalInputChars}
-              output={data.totalOutputChars}
-            />
-          )}
+          <UnitBreakdown
+            title="Tokens"
+            subtitle="Anthropic — SOP conversion"
+            icon={<Cpu className="size-4" strokeWidth={2} />}
+            input={data.totalInputTokens}
+            output={data.totalOutputTokens}
+            empty={!hasTokens}
+          />
+          <UnitBreakdown
+            title="Characters"
+            subtitle="Google — translation"
+            icon={<Languages className="size-4" strokeWidth={2} />}
+            input={data.totalInputChars}
+            output={data.totalOutputChars}
+            empty={!hasChars}
+          />
         </div>
       )}
 
@@ -323,7 +338,9 @@ export async function AiUsageTab() {
         )}
       </div>
 
-      {/* Top tenants — cost-only, since tokens and chars don't sum meaningfully. */}
+      {/* Top tenants — split per-vendor so abuse signals are unambiguous.
+          A tenant whose Google column outruns their Anthropic column has
+          a different problem from one calling convert on repeat. */}
       <div>
         <Heading level={3} className="font-display text-base">Top tenants by spend</Heading>
         {!data.topTenants.length ? (
@@ -335,7 +352,9 @@ export async function AiUsageTab() {
                 <tr>
                   <th className="px-4 py-2.5">Tenant</th>
                   <th className="px-4 py-2.5 text-right">Calls</th>
-                  <th className="px-4 py-2.5 text-right">Est. cost</th>
+                  <th className="px-4 py-2.5 text-right">Anthropic</th>
+                  <th className="px-4 py-2.5 text-right">Google</th>
+                  <th className="px-4 py-2.5 text-right">Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[color:var(--dc-edge)]">
@@ -352,8 +371,14 @@ export async function AiUsageTab() {
                     <td className="px-4 py-2.5 text-right tabular-nums text-dc-text-2">
                       {t.calls.toLocaleString()}
                     </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-dc-text-2">
+                      {t.anthropic_cost > 0 ? fmtUsd(t.anthropic_cost) : <span className="text-dc-text-3">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-dc-text-2">
+                      {t.google_cost > 0 ? fmtUsd(t.google_cost) : <span className="text-dc-text-3">—</span>}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-dc-text">
-                      {fmtUsd(t.estimated_cost)}
+                      {fmtUsd(t.total_cost)}
                     </td>
                   </tr>
                 ))}
@@ -392,29 +417,51 @@ function SimpleStat({
 
 function UnitBreakdown({
   title,
+  subtitle,
   icon,
   input,
   output,
+  empty,
 }: {
   title: string;
+  subtitle?: string;
   icon: React.ReactNode;
   input: number;
   output: number;
+  empty?: boolean;
 }) {
+  // When this kind has no data yet, dim the value text rather than
+  // hiding the card. The grid stays balanced and the super admin can
+  // see the slot exists and is just waiting for activity.
+  const valueClass = empty
+    ? "mt-1 text-lg font-semibold text-dc-text-3 tabular-nums"
+    : "mt-1 text-lg font-semibold text-dc-text tabular-nums";
   return (
     <div className="rounded-xl border border-[color:var(--dc-edge)] bg-dc-surface p-4 shadow-xs">
-      <div className="flex items-center gap-2 text-xs font-medium tracking-[0.1em] text-dc-text-3 uppercase">
-        <span aria-hidden className="text-dc-text-3">{icon}</span>
-        {title}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs font-medium tracking-[0.1em] text-dc-text-3 uppercase">
+            <span aria-hidden className="text-dc-text-3">{icon}</span>
+            {title}
+          </div>
+          {subtitle && (
+            <p className="mt-0.5 truncate text-[11px] text-dc-text-3">{subtitle}</p>
+          )}
+        </div>
+        {empty && (
+          <span className="rounded-full bg-dc-overlay px-2 py-0.5 text-[10px] font-medium tracking-wider text-dc-text-3 uppercase">
+            No data yet
+          </span>
+        )}
       </div>
       <div className="mt-3 grid grid-cols-2 gap-4">
         <div>
           <p className="text-[10px] tracking-wider text-dc-text-3 uppercase">Input</p>
-          <p className="mt-1 text-lg font-semibold text-dc-text tabular-nums">{fmtUnits(input)}</p>
+          <p className={valueClass}>{empty ? "—" : fmtUnits(input)}</p>
         </div>
         <div>
           <p className="text-[10px] tracking-wider text-dc-text-3 uppercase">Output</p>
-          <p className="mt-1 text-lg font-semibold text-dc-text tabular-nums">{fmtUnits(output)}</p>
+          <p className={valueClass}>{empty ? "—" : fmtUnits(output)}</p>
         </div>
       </div>
     </div>
