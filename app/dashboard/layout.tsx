@@ -55,7 +55,9 @@ async function resolveViewer(): Promise<ResolveResult> {
     if (e instanceof AuthError && e.code === "NO_COMPANY") {
       // Super admins carry no company_members row — they're welcome in
       // the dashboard shell. Without an active impersonation cookie
-      // they get the Platform-focused view.
+      // they get the Platform-focused view. Member-scoped pages
+      // (/dashboard, /dashboard/sops, …) handle their own redirect to
+      // /dashboard/platform; doing it here would loop on /dashboard/platform.
       if (await isCurrentUserSuperAdmin()) {
         return { kind: "viewer", resolved: { viewer: { kind: "superAdmin" } } };
       }
