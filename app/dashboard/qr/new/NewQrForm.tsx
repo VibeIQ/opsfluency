@@ -1,123 +1,349 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Bell, ClipboardList, Lock, Globe } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import type { QrTargetType } from '@/lib/qr/print-config';
+import type { CreatorScope } from '@/lib/qr/audience';
+import type { Role } from '@/lib/auth/company-context';
+import { DevicePreview } from '@/components/qr/DevicePreview';
 
-const TARGET_TYPES: { value: QrTargetType; label: string; description: string }[] = [
-  { value: 'sop',           label: 'SOP',           description: 'Links to a standard operating procedure' },
-  { value: 'announcement',  label: 'Announcement',  description: 'Links to a company announcement' },
-  { value: 'questionnaire', label: 'Questionnaire', description: 'Links to a form or survey' },
-  { value: 'url',           label: 'Custom URL',    description: 'Links to any external or internal URL' },
+type AvailableType = Exclude<QrTargetType, 'sop'>;
+
+const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
+  { value: 'admin',    label: 'Admins',    description: 'Always allowed regardless of audience' },
+  { value: 'manager',  label: 'Managers',  description: 'Department leads and supervisors' },
+  { value: 'employee', label: 'Employees', description: 'Frontline workers' },
 ];
 
-export default function NewQrForm() {
-  const router   = useRouter();
-  const [type,   setType]   = useState<QrTargetType>('sop');
-  const [label,  setLabel]  = useState('');
-  const [url,    setUrl]    = useState('');
-  const [error,  setError]  = useState<string | null>(null);
+interface Props {
+  departments: { id: string; name: string }[];
+  scope: CreatorScope;
+}
+
+export default function NewQrForm({ departments, scope }: Props) {
+  const router = useRouter();
+
+  const [type,    setType]    = useState<AvailableType>('url');
+  const [label,   setLabel]   = useState('');
+  const [url,     setUrl]     = useState('');
+
+  // For restricted creators we pre-populate the audience with their own
+  // departments — otherwise an empty audience would silently mean "everyone
+  // in the company," which they aren't allowed to do.
+  const [deptIds, setDeptIds] = useState<string[]>(
+    scope.unrestricted ? [] : scope.allowed_department_ids,
+  );
+  const [roles,   setRoles]   = useState<Role[]>([]);
+  const [error,   setError]   = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const allowedRoleSet = useMemo(
+    () => new Set(scope.unrestricted ? ROLE_OPTIONS.map((r) => r.value) : scope.allowed_roles),
+    [scope],
+  );
+
+  const audience_summary = useMemo(() => {
+    const depts = departments.filter((d) => deptIds.includes(d.id)).map((d) => d.name);
+    const roleLabels = roles.map((r) => ROLE_OPTIONS.find((o) => o.value === r)?.label ?? r);
+    if (depts.length === 0 && roleLabels.length === 0) return 'Everyone in the company';
+    const parts: string[] = [];
+    if (depts.length)      parts.push(depts.join(', '));
+    if (roleLabels.length) parts.push(roleLabels.join(', '));
+    return parts.join(' · ');
+  }, [departments, deptIds, roles]);
+
+  function toggleDept(id: string) {
+    setDeptIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  }
+  function toggleRole(r: Role) {
+    setRoles((cur) => (cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r]));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (type !== 'url') {
+      setError('That target type isn\'t available on your plan yet.');
+      return;
+    }
+    if (!url.trim()) {
+      setError('Enter a destination URL.');
+      return;
+    }
+    if (!scope.unrestricted && deptIds.length === 0 && roles.length === 0) {
+      setError('Pick at least one department or role to target.');
+      return;
+    }
+
     setLoading(true);
-
-    const body: Record<string, string> = { target_type: type, label };
-    if (type === 'url') body.target_url = url;
-
-    const res  = await fetch('/api/qr', {
+    const res = await fetch('/api/qr', {
       method:  'POST',
       headers: { 'content-type': 'application/json' },
-      body:    JSON.stringify(body),
+      body:    JSON.stringify({
+        target_type: type,
+        target_url:  url,
+        label,
+        audience: { department_ids: deptIds, roles },
+      }),
     });
     const json = await res.json();
-
     setLoading(false);
 
     if (!res.ok) {
       setError(json?.error?.message ?? 'Failed to create QR code');
       return;
     }
-
     router.push(`/dashboard/qr/${json.data.id}`);
   }
 
+  const visibleDepartments = scope.unrestricted
+    ? departments
+    : departments.filter((d) => scope.allowed_department_ids.includes(d.id));
+
   return (
-    <form onSubmit={handleSubmit} className="flex max-w-lg flex-col gap-6">
-      {/* Target type */}
-      <fieldset>
-        <legend className="mb-2 text-sm font-medium text-dc-text-2">Target type</legend>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {TARGET_TYPES.map(t => (
-            <label
-              key={t.value}
-              className={[
-                'flex cursor-pointer flex-col gap-1 rounded-xl border p-3 transition-colors',
-                type === t.value
-                  ? 'border-(--color-brand) bg-(--color-brand)/10'
-                  : 'border-[color:var(--dc-edge)] hover:border-[color:var(--dc-edge-2)]',
-              ].join(' ')}
-            >
-              <input
-                type="radio"
-                name="target_type"
-                value={t.value}
-                checked={type === t.value}
-                onChange={() => setType(t.value)}
-                className="sr-only"
-              />
-              <span className="text-sm font-semibold text-dc-text">{t.label}</span>
-              <span className="text-xs text-dc-text-3">{t.description}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+    <div className="grid gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-7">
+        {/* Target type */}
+        <fieldset>
+          <legend className="mb-2 text-sm font-medium text-dc-text-2">Target type</legend>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <TargetTile
+              value="url"
+              icon={<Globe className="size-5" strokeWidth={1.75} />}
+              label="Custom URL"
+              description="Link to any internal or external page."
+              selected={type === 'url'}
+              onSelect={() => setType('url')}
+            />
+            <TargetTile
+              value="announcement"
+              icon={<Bell className="size-5" strokeWidth={1.75} />}
+              label="Announcement"
+              description="Broadcast a message to selected teams."
+              selected={false}
+              onSelect={() => {}}
+              locked
+              lockedReason="Available on Pro"
+            />
+            <TargetTile
+              value="questionnaire"
+              icon={<ClipboardList className="size-5" strokeWidth={1.75} />}
+              label="Survey"
+              description="Collect structured feedback or a sign-off."
+              selected={false}
+              onSelect={() => {}}
+              locked
+              lockedReason="Available on Pro"
+            />
+          </div>
+          <p className="mt-2 text-xs text-dc-text-3">
+            SOP QR codes are now generated automatically when you publish an SOP — no need to
+            create them here.
+          </p>
+        </fieldset>
 
-      {/* Label */}
-      <div>
-        <label htmlFor="qr-label" className="mb-1 block text-sm font-medium text-dc-text-2">
-          Label <span className="text-dc-text-3">(optional)</span>
-        </label>
-        <input
-          id="qr-label"
-          type="text"
-          value={label}
-          onChange={e => setLabel(e.target.value)}
-          maxLength={200}
-          placeholder="e.g. Forklift Safety - Bay 3"
-          className="w-full rounded-md border border-[color:var(--dc-edge)] bg-dc-raised px-3 py-2 text-sm text-dc-text placeholder-dc-text-3 focus:border-[color:var(--dc-edge-2)] focus:outline-none"
-        />
-      </div>
-
-      {/* URL - only shown for url type */}
-      {type === 'url' && (
+        {/* Label */}
         <div>
-          <label htmlFor="qr-url" className="mb-1 block text-sm font-medium text-dc-text-2">
-            Destination URL{' '}
-            <span className="text-(--color-signal-urgent)" aria-label="required">*</span>
+          <label htmlFor="qr-label" className="mb-1 block text-sm font-medium text-dc-text-2">
+            Label <span className="text-dc-text-3">(optional)</span>
           </label>
           <input
-            id="qr-url"
-            type="url"
-            value={url}
-            onChange={e => setUrl(e.target.value)}
-            required={type === 'url'}
-            placeholder="https://example.com/procedure"
-            className="w-full rounded-md border border-[color:var(--dc-edge)] bg-dc-raised px-3 py-2 text-sm text-dc-text placeholder-dc-text-3 focus:border-[color:var(--dc-edge-2)] focus:outline-none"
+            id="qr-label"
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            maxLength={200}
+            placeholder="e.g. Forklift Safety - Bay 3"
+            className="w-full rounded-md border border-[color:var(--dc-edge)] bg-dc-raised px-3 py-2 text-sm text-dc-text placeholder-dc-text-3 focus:border-(--color-brand) focus:outline-none"
           />
         </div>
-      )}
 
-      {error && (
-        <p className="text-sm text-(--color-signal-urgent)" role="alert">{error}</p>
-      )}
+        {/* URL */}
+        {type === 'url' && (
+          <div>
+            <label htmlFor="qr-url" className="mb-1 block text-sm font-medium text-dc-text-2">
+              Destination URL{' '}
+              <span className="text-(--color-signal-urgent)" aria-label="required">*</span>
+            </label>
+            <input
+              id="qr-url"
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              required
+              placeholder="https://example.com/procedure"
+              className="w-full rounded-md border border-[color:var(--dc-edge)] bg-dc-raised px-3 py-2 text-sm text-dc-text placeholder-dc-text-3 focus:border-(--color-brand) focus:outline-none"
+            />
+            <p className="mt-1 text-xs text-dc-text-3">
+              Workers in the audience will be redirected here after they sign in.
+            </p>
+          </div>
+        )}
 
-      <Button type="submit" color="brand" disabled={loading}>
-        {loading ? 'Creating…' : 'Create QR code'}
-      </Button>
-    </form>
+        {/* Audience */}
+        <fieldset className="flex flex-col gap-4 rounded-xl border border-[color:var(--dc-edge)] bg-dc-surface p-5">
+          <div>
+            <legend className="text-sm font-semibold text-dc-text">Who can scan this?</legend>
+            <p className="mt-1 text-xs text-dc-text-3">
+              {scope.unrestricted
+                ? 'Leave both lists empty to allow everyone in the company. Pick a department or role to scope it down.'
+                : 'You can target your own department(s) and the roles below.'}
+            </p>
+          </div>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            <div>
+              <p className="mb-2 text-xs font-medium tracking-wide text-dc-text-2 uppercase">
+                Departments
+              </p>
+              {visibleDepartments.length === 0 ? (
+                <p className="text-xs text-dc-text-3">No departments available.</p>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {visibleDepartments.map((d) => (
+                    <li key={d.id}>
+                      <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm text-dc-text hover:bg-dc-raised">
+                        <input
+                          type="checkbox"
+                          checked={deptIds.includes(d.id)}
+                          onChange={() => toggleDept(d.id)}
+                          className="size-4 rounded border-[color:var(--dc-edge)] text-(--color-brand) focus:ring-(--color-brand)"
+                        />
+                        <span>{d.name}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-medium tracking-wide text-dc-text-2 uppercase">
+                Roles
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {ROLE_OPTIONS.map((r) => {
+                  const allowed  = allowedRoleSet.has(r.value);
+                  const checked  = roles.includes(r.value);
+                  const isAdmin  = r.value === 'admin';
+                  return (
+                    <li key={r.value}>
+                      <label
+                        className={
+                          'flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 text-sm hover:bg-dc-raised' +
+                          (allowed ? ' text-dc-text' : ' cursor-not-allowed text-dc-text-3 opacity-60')
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!allowed}
+                          onChange={() => allowed && toggleRole(r.value)}
+                          className="mt-0.5 size-4 rounded border-[color:var(--dc-edge)] text-(--color-brand) focus:ring-(--color-brand)"
+                        />
+                        <span className="flex flex-col">
+                          <span className="font-medium">{r.label}</span>
+                          <span className="text-xs text-dc-text-3">
+                            {isAdmin ? 'Always allowed regardless of audience' : r.description}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+
+          <p className="rounded-md bg-dc-raised px-3 py-2 text-xs text-dc-text-2">
+            Audience: <span className="font-medium text-dc-text">{audience_summary}</span>
+          </p>
+        </fieldset>
+
+        {error && (
+          <p className="text-sm text-(--color-signal-urgent)" role="alert">{error}</p>
+        )}
+
+        <div className="flex items-center gap-3">
+          <Button type="submit" color="brand" disabled={loading}>
+            {loading ? 'Creating…' : 'Create QR code'}
+          </Button>
+          <Button href="/dashboard/qr" plain>
+            Cancel
+          </Button>
+        </div>
+      </form>
+
+      <aside className="lg:sticky lg:top-6 lg:self-start">
+        <DevicePreview label={label} url={url} audience_summary={audience_summary} />
+      </aside>
+    </div>
+  );
+}
+
+interface TileProps {
+  value: AvailableType;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  selected: boolean;
+  onSelect: () => void;
+  locked?: boolean;
+  lockedReason?: string;
+}
+
+function TargetTile({
+  value, icon, label, description, selected, onSelect, locked, lockedReason,
+}: TileProps) {
+  if (locked) {
+    return (
+      <div
+        aria-disabled="true"
+        className="relative flex cursor-not-allowed flex-col gap-2 rounded-xl border border-dashed border-[color:var(--dc-edge)] bg-dc-surface p-4 opacity-70"
+      >
+        <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-dc-raised px-2 py-0.5 text-[10px] font-medium tracking-wide text-dc-text-3 uppercase">
+          <Lock className="size-3" strokeWidth={2} />
+          {lockedReason ?? 'Locked'}
+        </span>
+        <span className="flex size-9 items-center justify-center rounded-lg bg-dc-raised text-dc-text-3">
+          {icon}
+        </span>
+        <span className="text-sm font-semibold text-dc-text">{label}</span>
+        <span className="text-xs text-dc-text-3">{description}</span>
+      </div>
+    );
+  }
+  return (
+    <label
+      className={
+        'flex cursor-pointer flex-col gap-2 rounded-xl border p-4 transition-colors ' +
+        (selected
+          ? 'border-(--color-brand) bg-(--color-brand)/10'
+          : 'border-[color:var(--dc-edge)] hover:border-[color:var(--dc-edge-2)]')
+      }
+    >
+      <input
+        type="radio"
+        name="target_type"
+        value={value}
+        checked={selected}
+        onChange={onSelect}
+        className="sr-only"
+      />
+      <span className={
+        'flex size-9 items-center justify-center rounded-lg ' +
+        (selected
+          ? 'bg-(--color-brand)/15 text-(--color-brand)'
+          : 'bg-dc-raised text-dc-text-2')
+      }>
+        {icon}
+      </span>
+      <span className="text-sm font-semibold text-dc-text">{label}</span>
+      <span className="text-xs text-dc-text-3">{description}</span>
+    </label>
   );
 }
