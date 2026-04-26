@@ -34,14 +34,15 @@ interface Props {
   showPrintButton?: boolean;
 }
 
-type SectionKey = 'logo' | 'header' | 'qr' | 'footer' | 'style';
+type SectionKey = 'logo' | 'header' | 'qr' | 'footer' | 'style' | 'spacing';
 
 const SECTIONS: { key: SectionKey; title: string }[] = [
-  { key: 'style',  title: 'Typography' },
-  { key: 'logo',   title: 'Logo & Company' },
-  { key: 'header', title: 'Header' },
-  { key: 'qr',     title: 'QR Code & Tagline' },
-  { key: 'footer', title: 'Footer' },
+  { key: 'style',   title: 'Typography' },
+  { key: 'logo',    title: 'Logo & Company' },
+  { key: 'header',  title: 'Header' },
+  { key: 'qr',      title: 'QR Code & Tagline' },
+  { key: 'footer',  title: 'Footer' },
+  { key: 'spacing', title: 'Section spacing' },
 ];
 
 const FONT_FAMILIES: PrintFontFamily[] = ['sans', 'display'];
@@ -209,12 +210,6 @@ export default function QRPrintEditor({
                         />
                       </>
                     )}
-
-                    <SpacingSlider
-                      label="Top band spacing"
-                      value={config.spacing_top}
-                      onChange={v => patch({ spacing_top: v })}
-                    />
                   </div>
                 )}
 
@@ -302,11 +297,6 @@ export default function QRPrintEditor({
                         onChange={v => patch({ font_size_tagline: v })}
                       />
                     </div>
-                    <SpacingSlider
-                      label="Middle band spacing"
-                      value={config.spacing_middle}
-                      onChange={v => patch({ spacing_middle: v })}
-                    />
                   </div>
                 )}
 
@@ -356,11 +346,29 @@ export default function QRPrintEditor({
                         onChange={v => patch({ font_size_footer2: v })}
                       />
                     </div>
+                  </div>
+                )}
+
+                {key === 'spacing' && (
+                  <div className="flex flex-col gap-5">
                     <SpacingSlider
-                      label="Footer band spacing"
+                      label="Top band"
+                      value={config.spacing_top}
+                      onChange={v => patch({ spacing_top: v })}
+                    />
+                    <SpacingSlider
+                      label="Middle band"
+                      value={config.spacing_middle}
+                      onChange={v => patch({ spacing_middle: v })}
+                    />
+                    <SpacingSlider
+                      label="Footer band"
                       value={config.spacing_footer}
                       onChange={v => patch({ spacing_footer: v })}
                     />
+                    <p className="text-xs text-dc-text-3">
+                      Controls the gap between elements inside each band.
+                    </p>
                   </div>
                 )}
               </div>
