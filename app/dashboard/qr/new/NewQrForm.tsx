@@ -295,33 +295,64 @@ export default function NewQrForm({ departments, scope }: Props) {
         </fieldset>
 
         {/* Schedule */}
-        <fieldset className="flex flex-col gap-4 rounded-xl border border-[color:var(--dc-edge)] bg-dc-surface p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <legend className="flex items-center gap-2 text-sm font-semibold text-dc-text">
+        <fieldset className={
+          'overflow-hidden rounded-xl border bg-dc-surface transition-colors ' +
+          (scheduleOn
+            ? 'border-(--color-brand)/60 ring-1 ring-(--color-brand)/20'
+            : 'border-[color:var(--dc-edge)]')
+        }>
+          <label className="flex cursor-pointer items-start justify-between gap-4 p-5 transition-colors hover:bg-dc-raised/40">
+            <div className="flex-1">
+              <legend className="flex flex-wrap items-center gap-2 text-sm font-semibold text-dc-text">
                 <CalendarRange className="size-4 text-(--color-brand)" strokeWidth={2} aria-hidden />
                 Schedule
+                <span
+                  className={
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase ' +
+                    (scheduleOn
+                      ? 'bg-(--color-brand) text-white'
+                      : 'bg-dc-raised text-dc-text-3 ring-1 ring-inset ring-[color:var(--dc-edge)]')
+                  }
+                >
+                  {scheduleOn ? 'On' : 'Off'}
+                </span>
               </legend>
               <p className="mt-1 text-xs text-dc-text-3">
-                Off by default — the QR is active indefinitely. Turn it on
-                to limit when scans resolve. Outside the window, scans
-                show the &ldquo;no longer available&rdquo; page.
+                {scheduleOn
+                  ? 'Pick when this QR turns on and off. Outside the window, scans show the “no longer available” page.'
+                  : 'Off by default — the QR is active indefinitely. Turn on to limit when scans resolve.'}
               </p>
             </div>
-            <label className="relative inline-flex shrink-0 cursor-pointer items-center">
-              <input
-                type="checkbox"
-                checked={scheduleOn}
-                onChange={(e) => setScheduleOn(e.target.checked)}
-                className="peer sr-only"
+
+            <input
+              type="checkbox"
+              checked={scheduleOn}
+              onChange={(e) => setScheduleOn(e.target.checked)}
+              className="peer sr-only"
+              aria-label="Enable schedule"
+            />
+            <span
+              aria-hidden
+              className={
+                'relative mt-0.5 inline-flex shrink-0 ' +
+                'h-7 w-12 rounded-full transition-colors ' +
+                (scheduleOn
+                  ? 'bg-(--color-brand) shadow-inner ring-2 ring-(--color-brand)/30'
+                  : 'bg-zinc-300 ring-1 ring-inset ring-zinc-400/50 dark:bg-zinc-700 dark:ring-zinc-500/40') +
+                ' peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-(--color-brand)'
+              }
+            >
+              <span
+                className={
+                  'absolute left-0.5 top-0.5 size-6 rounded-full bg-white shadow-md transition-transform duration-150 ease-out ' +
+                  (scheduleOn ? 'translate-x-5' : 'translate-x-0')
+                }
               />
-              <span className="h-6 w-11 rounded-full bg-dc-raised transition-colors peer-checked:bg-(--color-brand)" />
-              <span className="absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
-            </label>
-          </div>
+            </span>
+          </label>
 
           {scheduleOn && (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 border-t border-[color:var(--dc-edge)] bg-dc-base/40 p-5 sm:grid-cols-2">
               <div>
                 <label htmlFor="qr-active-from" className="mb-1 block text-xs font-medium tracking-wide text-dc-text-2 uppercase">
                   Activate at
