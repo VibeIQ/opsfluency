@@ -7,6 +7,7 @@ import {
   type PrintConfig,
   type QrTargetType,
 } from './print-config';
+import type { QrAudience } from './audience';
 
 interface CreateQrCodeInput {
   supabase: SupabaseClient;
@@ -16,6 +17,7 @@ interface CreateQrCodeInput {
   target_id?: string;          // required unless target_type = 'url'
   target_url?: string;         // required when target_type = 'url'
   label?: string;
+  audience?: QrAudience;
   print_config_overrides?: Partial<PrintConfig>;
   /** Phone number used as footer2 default (from companies.phone). */
   company_phone?: string | null;
@@ -34,6 +36,8 @@ export interface QrCodeRow {
   target_url: string | null;
   label: string;
   print_config: PrintConfig;
+  audience_department_ids: string[];
+  audience_roles: ('admin' | 'manager' | 'employee')[];
   created_by: string;
   created_at: string;
 }
@@ -47,6 +51,7 @@ export async function createQrCode(input: CreateQrCodeInput): Promise<QrCodeRow>
     target_id,
     target_url,
     label = '',
+    audience,
     print_config_overrides,
     company_phone,
     company_design_defaults,
@@ -74,6 +79,8 @@ export async function createQrCode(input: CreateQrCodeInput): Promise<QrCodeRow>
       target_url:  target_url  ?? null,
       label,
       print_config,
+      audience_department_ids: audience?.department_ids ?? [],
+      audience_roles:          audience?.roles          ?? [],
     })
     .select()
     .single();

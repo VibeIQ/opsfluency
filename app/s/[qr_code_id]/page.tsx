@@ -1,9 +1,11 @@
-import { notFound } from 'next/navigation';
-import { redirect } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import type { Metadata } from 'next';
 
 import { resolveQrTarget } from '@/lib/qr/resolve';
+import { passesAudience, isAudienceUnrestricted } from '@/lib/qr/audience';
+import { getAdminClient } from '@/lib/supabase/admin';
+import { AccessDeniedView } from '@/components/qr/AccessDeniedView';
 import QrGone from './gone';
 
 interface Props {
@@ -17,11 +19,9 @@ export default async function QrScanPage({ params }: Props) {
   const result = await resolveQrTarget(qr_code_id);
 
   if (result.status === 'not_found') notFound();
+  if (result.status === 'archived') return <QrGone />;
 
-  if (result.status === 'archived') {
-    // HTTP 410 Gone — content intentionally removed.
-    return <QrGone />;
-  }
+  const { qr, destination } = result;
 
   // Fire-and-forget scan log. Don't await — we don't want latency on the redirect.
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
@@ -29,15 +29,106 @@ export default async function QrScanPage({ params }: Props) {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ qr_code_id }),
-    // next: { revalidate: 0 } — not needed on a server component, just fire it
   }).catch(() => {/* best-effort; never block the redirect */});
 
   const { userId } = await auth();
-  const destination = result.destination;
 
-  if (userId) {
-    redirect(destination);
-  } else {
-    redirect(`/sign-in?redirect_url=${encodeURIComponent(destination)}`);
+  // Unauthenticated path: send to sign-in with the scan URL preserved as the
+  // post-login redirect so the audience check runs after Clerk hands the user
+  // back to us. We never let an unauthenticated scan through, even when the
+  // audience is empty — the company decides who their QRs are for.
+  if (!userId) {
+    const back = `/s/${qr_code_id}`;
+    redirect(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
   }
+
+  // Audience gate. Resolve the scanner's role + departments, then run the
+  // shared `passesAudience` check. Admins always pass; super-admins pass via
+  // the same admin branch (they get role='admin' through impersonation, or
+  // we explicitly recognise them here when they're not impersonating).
+  const audience = {
+    department_ids: (qr.audience_department_ids ?? []) as string[],
+    roles:          (qr.audience_roles          ?? []) as ('admin' | 'manager' | 'employee')[],
+  };
+
+  if (isAudienceUnrestricted(audience)) {
+    redirect(destination);
+  }
+
+  // Admin client: scan landing has no Clerk JWT → Supabase is treating us
+  // as anon. We only read membership for the gate, never write.
+  const admin = getAdminClient();
+  const [{ data: member }, { data: superRow }] = await Promise.all([
+    admin
+      .from('company_members')
+      .select('id, role, company_id')
+      .eq('clerk_user_id', userId)
+      .eq('company_id', qr.company_id)
+      .maybeSingle(),
+    admin
+      .from('super_admins')
+      .select('id')
+      .eq('clerk_user_id', userId)
+      .maybeSingle(),
+  ]);
+
+  if (superRow) redirect(destination);
+
+  if (!member) {
+    return (
+      <ScanShell>
+        <AccessDeniedView
+          qr_code_id={qr_code_id}
+          label={qr.label || undefined}
+          audience_summary={summariseAudience(audience)}
+        />
+      </ScanShell>
+    );
+  }
+
+  const { data: deptRows } = await admin
+    .from('employee_departments')
+    .select('department_id')
+    .eq('member_id', member.id);
+
+  const scanner = {
+    role: member.role as 'admin' | 'manager' | 'employee',
+    department_ids: (deptRows ?? []).map((r) => r.department_id as string),
+  };
+
+  if (passesAudience(audience, scanner)) {
+    redirect(destination);
+  }
+
+  return (
+    <ScanShell>
+      <AccessDeniedView
+        qr_code_id={qr_code_id}
+        label={qr.label || undefined}
+        audience_summary={summariseAudience(audience)}
+      />
+    </ScanShell>
+  );
+}
+
+function ScanShell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-dc-base px-4 py-10">
+      <div className="w-full max-w-md rounded-2xl border border-[color:var(--dc-edge)] bg-dc-surface shadow-sm">
+        {children}
+      </div>
+    </main>
+  );
+}
+
+function summariseAudience(a: { department_ids: string[]; roles: string[] }) {
+  const bits: string[] = [];
+  if (a.roles.length) {
+    const human = a.roles.map((r) => (r === 'employee' ? 'Workers' : r === 'manager' ? 'Managers' : 'Admins'));
+    bits.push(human.join(', '));
+  }
+  if (a.department_ids.length) {
+    bits.push(`${a.department_ids.length} department${a.department_ids.length === 1 ? '' : 's'}`);
+  }
+  return bits.length ? `For ${bits.join(' · ')}` : '';
 }

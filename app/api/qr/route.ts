@@ -3,12 +3,20 @@ import { z } from 'zod';
 
 import { AuthError, getCompanyContext } from '@/lib/auth/company-context';
 import { createQrCode } from '@/lib/qr/generate';
+import { getCreatorScope } from '@/lib/qr/creator-scope';
+import { isWithinCreatorScope } from '@/lib/qr/audience';
+
+const RoleSchema = z.enum(['admin', 'manager', 'employee']);
 
 const CreateQrInput = z.object({
   target_type: z.enum(['sop', 'announcement', 'questionnaire', 'url']),
   target_id:   z.string().uuid().optional(),
   target_url:  z.string().url().optional(),
   label:       z.string().max(200).optional(),
+  audience: z.object({
+    department_ids: z.array(z.string().uuid()).default([]),
+    roles:          z.array(RoleSchema).default([]),
+  }).default({ department_ids: [], roles: [] }),
 }).refine(
   d => d.target_type === 'url' ? !!d.target_url : !!d.target_id,
   { message: 'target_id required unless target_type is url; target_url required for url type' },
@@ -16,9 +24,18 @@ const CreateQrInput = z.object({
 
 export async function POST(request: Request) {
   try {
-    const { supabase, company_id, userId } = await getCompanyContext('manager');
-    const body = await request.json();
+    const ctx = await getCompanyContext('manager');
+    const { supabase, company_id, userId, role, impersonating } = ctx;
+    const body   = await request.json();
     const parsed = CreateQrInput.parse(body);
+
+    // Server-side enforcement: a department manager can't target departments
+    // they don't belong to or assign roles above their pay grade. Admins and
+    // HR managers come back as `unrestricted` and skip the check.
+    const scope = await getCreatorScope({ supabase, userId, company_id, role, impersonating });
+    if (!isWithinCreatorScope(parsed.audience, scope)) {
+      return fail(403, 'FORBIDDEN', 'audience targets a department or role outside your scope');
+    }
 
     // Fetch company phone (footer2 default) + org-wide design defaults.
     const { data: company } = await supabase
@@ -35,6 +52,7 @@ export async function POST(request: Request) {
       target_id:               parsed.target_id,
       target_url:              parsed.target_url,
       label:                   parsed.label,
+      audience:                parsed.audience,
       company_phone:           company?.phone,
       company_design_defaults: company?.qr_design_defaults ?? null,
     });
