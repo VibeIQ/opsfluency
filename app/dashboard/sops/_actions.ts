@@ -19,7 +19,7 @@ import type { GlossaryRow } from '@/lib/types/glossary';
 // path below to preserve mdast scaffolding.
 import { translateMarkdownStructured } from '@/lib/translation/structured';
 import { createQrCode } from '@/lib/qr/generate';
-import { isWithinCreatorScope, type QrAudience as Audience } from '@/lib/qr/audience';
+import { isWithinCreatorScope } from '@/lib/qr/audience';
 import { getCreatorScope } from '@/lib/qr/creator-scope';
 import {
   ALLOWED_SOP_TRANSITIONS,
@@ -664,9 +664,13 @@ export async function updateSopAudience(raw: unknown): Promise<ActionResult<{ ok
   }
 }
 
-// Re-export the audience type from the shared QR-side helpers so SOP
-// callers don't need to know it lives there. Same shape, same rules.
-export type { Audience };
+// Audience shape for SOP code. Mirrors the QR audience shape — same
+// arrays, same union semantics — declared as a type alias rather than a
+// re-export so the SWC/Turbopack runtime bundle has nothing to resolve
+// at module-evaluation time. (A `type X as Y` style export was emitting
+// a stray runtime reference under Turbopack and bricking module load.)
+import type { QrAudience } from '@/lib/qr/audience';
+export type Audience = QrAudience;
 
 // ── 7. Archive ────────────────────────────────────────────────────────────────
 //
