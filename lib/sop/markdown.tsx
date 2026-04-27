@@ -1,14 +1,18 @@
 import type { ReactNode } from 'react';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 /**
- * Tiny SOP-flavoured Markdown → JSX renderer. Handles the subset Sonnet's
- * conversion prompt produces: headings, ordered/unordered lists, blockquotes
- * (used for Warning/Caution/Note callouts), paragraphs, and inline `**bold**`,
- * `*italic*`, `` `code` ``. Pulling in `react-markdown` + remark/rehype for
- * MVP would balloon the bundle for one feature; this stays in app code.
+ * SOP-flavoured Markdown renderer. Backed by `react-markdown` +
+ * `remark-gfm` so we get tables, task lists, strikethrough, autolinks,
+ * and nested structures for free. The component overrides below keep
+ * the brand styling that the previous in-house renderer produced —
+ * branded callouts for blockquotes, brand-coloured ordered-list
+ * markers, and OpsFluency type scale for headings.
  *
- * Not handled (yet): nested lists, tables, raw HTML, images. If a customer
- * SOP actually uses one of these, swap this for a real markdown lib.
+ * Callout tone is still inferred from a leading `**Warning:**` /
+ * `**Caution:**` / `**Note:**` marker inside a blockquote, matching
+ * the conversion prompt's contract with Sonnet.
  */
 
 interface RenderOptions {
@@ -17,229 +21,188 @@ interface RenderOptions {
 
 const CALLOUT_PATTERNS: { keyword: string; tone: 'warn' | 'urgent' | 'info' }[] = [
   { keyword: 'Warning', tone: 'urgent' },
-  { keyword: 'Danger', tone: 'urgent' },
-  { keyword: 'Caution', tone: 'warn' },
-  { keyword: 'Note', tone: 'info' },
-  { keyword: 'Tip', tone: 'info' },
+  { keyword: 'Danger',  tone: 'urgent' },
+  { keyword: 'Caution', tone: 'warn'   },
+  { keyword: 'Note',    tone: 'info'   },
+  { keyword: 'Tip',     tone: 'info'   },
 ];
 
-function inline(line: string, keyPrefix: string): ReactNode[] {
-  // Order: code → bold → italic. Code spans don't get further parsed.
-  const out: ReactNode[] = [];
-  let i = 0;
-  let buf = '';
-  let key = 0;
+const TONE_CLASSES: Record<'warn' | 'urgent' | 'info', string> = {
+  urgent: 'border-(--color-signal-urgent) bg-(--color-signal-urgent)/5',
+  warn:   'border-(--color-signal-warn)   bg-(--color-signal-warn)/5',
+  info:   'border-(--color-signal-info)   bg-(--color-signal-info)/5',
+};
 
-  function flush() {
-    if (buf) {
-      out.push(buf);
-      buf = '';
-    }
+/**
+ * `react-markdown` hands children to a blockquote override as a node
+ * tree, not as flat text. Walk it once to figure out which callout
+ * tone (if any) the leading `**Keyword:**` matches.
+ */
+function calloutToneFromChildren(children: ReactNode): 'warn' | 'urgent' | 'info' {
+  const flat = flattenText(children).trimStart();
+  for (const p of CALLOUT_PATTERNS) {
+    // Match `Warning:` / `Warning ` either bolded (the prompt's contract) or plain.
+    const re = new RegExp(`^(?:\\*\\*)?${p.keyword}:?(?:\\*\\*)?\\b`, 'i');
+    if (re.test(flat)) return p.tone;
   }
-
-  while (i < line.length) {
-    const c = line[i];
-
-    if (c === '`') {
-      const end = line.indexOf('`', i + 1);
-      if (end !== -1) {
-        flush();
-        out.push(
-          <code key={`${keyPrefix}-c-${key++}`} className="rounded bg-dc-raised px-1 py-0.5 font-mono text-[0.85em]">
-            {line.slice(i + 1, end)}
-          </code>,
-        );
-        i = end + 1;
-        continue;
-      }
-    }
-    if (c === '*' && line[i + 1] === '*') {
-      const end = line.indexOf('**', i + 2);
-      if (end !== -1) {
-        flush();
-        out.push(
-          <strong key={`${keyPrefix}-b-${key++}`} className="font-semibold text-dc-text">
-            {inline(line.slice(i + 2, end), `${keyPrefix}-${key}`)}
-          </strong>,
-        );
-        i = end + 2;
-        continue;
-      }
-    }
-    if (c === '*') {
-      const end = line.indexOf('*', i + 1);
-      if (end !== -1 && end !== i + 1) {
-        flush();
-        out.push(
-          <em key={`${keyPrefix}-i-${key++}`} className="italic">
-            {inline(line.slice(i + 1, end), `${keyPrefix}-${key}`)}
-          </em>,
-        );
-        i = end + 1;
-        continue;
-      }
-    }
-    buf += c;
-    i++;
-  }
-  flush();
-  return out;
+  return 'info';
 }
 
-interface Block {
-  render: () => ReactNode;
+function flattenText(node: ReactNode): string {
+  if (node == null || node === false) return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(flattenText).join('');
+  if (typeof node === 'object' && 'props' in node) {
+    return flattenText((node as { props: { children?: ReactNode } }).props.children);
+  }
+  return '';
 }
 
-function classifyBlock(lines: string[], startIdx: number): { block: Block; consumed: number } {
-  const line = lines[startIdx];
+const components: Components = {
+  h1: ({ children }) => (
+    <h2 className="font-display mt-2 mb-4 text-2xl font-bold text-dc-text">{children}</h2>
+  ),
+  h2: ({ children }) => (
+    <h3 className="mt-6 mb-3 text-xl font-semibold text-dc-text">{children}</h3>
+  ),
+  h3: ({ children }) => (
+    <h4 className="mt-5 mb-2 text-lg font-semibold text-dc-text">{children}</h4>
+  ),
+  h4: ({ children }) => (
+    <h5 className="mt-4 mb-2 text-base font-semibold text-dc-text">{children}</h5>
+  ),
+  h5: ({ children }) => (
+    <h6 className="mt-4 mb-2 text-base font-semibold text-dc-text">{children}</h6>
+  ),
+  h6: ({ children }) => (
+    <h6 className="mt-4 mb-2 text-base font-semibold text-dc-text">{children}</h6>
+  ),
 
-  // Heading
-  const h = /^(#{1,4})\s+(.*)$/.exec(line);
-  if (h) {
-    const level = h[1].length;
-    const text = h[2];
-    const sizeCls =
-      level === 1 ? 'text-2xl font-display font-bold mt-2 mb-4' :
-      level === 2 ? 'text-xl font-semibold mt-6 mb-3' :
-      level === 3 ? 'text-lg font-semibold mt-5 mb-2' :
-      'text-base font-semibold mt-4 mb-2';
-    return {
-      consumed: 1,
-      block: {
-        render: () => {
-          const cls = `${sizeCls} text-dc-text`;
-          const children = inline(text, `h${startIdx}`);
-          if (level === 1) return <h2 className={cls}>{children}</h2>;
-          if (level === 2) return <h3 className={cls}>{children}</h3>;
-          if (level === 3) return <h4 className={cls}>{children}</h4>;
-          return <h5 className={cls}>{children}</h5>;
-        },
-      },
-    };
-  }
+  p: ({ children }) => (
+    <p className="my-3 leading-relaxed text-dc-text">{children}</p>
+  ),
 
-  // Blockquote (callout)
-  if (line.startsWith('> ')) {
-    let i = startIdx;
-    const collected: string[] = [];
-    while (i < lines.length && lines[i].startsWith('> ')) {
-      collected.push(lines[i].slice(2));
-      i++;
+  strong: ({ children }) => (
+    <strong className="font-semibold text-dc-text">{children}</strong>
+  ),
+  em: ({ children }) => <em className="italic">{children}</em>,
+  del: ({ children }) => <del className="text-dc-text-3 line-through">{children}</del>,
+
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target={href?.startsWith('http') ? '_blank' : undefined}
+      rel={href?.startsWith('http') ? 'noopener noreferrer' : undefined}
+      className="text-(--color-brand) underline decoration-(--color-brand)/40 underline-offset-2 hover:decoration-(--color-brand)"
+    >
+      {children}
+    </a>
+  ),
+
+  code: ({ children, ...props }) => {
+    // Distinguish inline code from fenced code blocks. `react-markdown`
+    // renders fenced blocks as <pre><code>, so the parent of a fenced
+    // code is the <pre> override below; here we only style inline.
+    const isInline = !(props as { className?: string }).className;
+    if (!isInline) return <code {...props}>{children}</code>;
+    return (
+      <code className="rounded bg-dc-raised px-1 py-0.5 font-mono text-[0.85em]">
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }) => (
+    <pre className="my-4 overflow-x-auto rounded-md border border-[color:var(--dc-edge)] bg-dc-raised p-3 font-mono text-[0.85em] text-dc-text">
+      {children}
+    </pre>
+  ),
+
+  ol: ({ children }) => (
+    <ol className="my-3 list-decimal space-y-2 pl-6 text-dc-text marker:font-semibold marker:text-(--color-brand)">
+      {children}
+    </ol>
+  ),
+  ul: ({ children }) => (
+    <ul className="my-3 list-disc space-y-2 pl-6 text-dc-text marker:text-dc-text-3">
+      {children}
+    </ul>
+  ),
+  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+
+  blockquote: ({ children }) => {
+    const tone = calloutToneFromChildren(children);
+    const toneCls = TONE_CLASSES[tone];
+    return (
+      <blockquote className={`my-4 rounded-md border-l-4 px-4 py-3 ${toneCls}`}>
+        {children}
+      </blockquote>
+    );
+  },
+
+  hr: () => <hr className="my-6 border-t border-[color:var(--dc-edge)]" />,
+
+  // GFM tables — the entire reason for the swap. Real <table> elements
+  // (accessible to screen readers + keyboard nav) with light brand chrome.
+  table: ({ children }) => (
+    <div className="my-4 overflow-x-auto rounded-lg border border-[color:var(--dc-edge)]">
+      <table className="w-full border-collapse text-sm text-dc-text">
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children }) => (
+    <thead className="bg-dc-raised text-left text-xs font-semibold tracking-wide text-dc-text-2 uppercase">
+      {children}
+    </thead>
+  ),
+  tbody: ({ children }) => (
+    <tbody className="divide-y divide-[color:var(--dc-edge)]">{children}</tbody>
+  ),
+  tr: ({ children }) => <tr>{children}</tr>,
+  th: ({ children, style }) => (
+    <th style={style} className="px-3 py-2 align-top">{children}</th>
+  ),
+  td: ({ children, style }) => (
+    <td style={style} className="px-3 py-2 align-top leading-relaxed">{children}</td>
+  ),
+
+  // GFM task lists — `[ ]` / `[x]`. react-markdown renders the
+  // checkbox; we restyle it lightly for legibility on warehouse floors.
+  input: (props) => {
+    if ((props as { type?: string }).type === 'checkbox') {
+      return (
+        <input
+          {...props}
+          disabled
+          className="mr-1.5 size-4 translate-y-0.5 rounded border-[color:var(--dc-edge)] text-(--color-brand) accent-(--color-brand)"
+        />
+      );
     }
-    const joined = collected.join('\n');
-    let tone: 'warn' | 'urgent' | 'info' = 'info';
-    for (const p of CALLOUT_PATTERNS) {
-      if (new RegExp(`^\\*\\*${p.keyword}:?\\*\\*`, 'i').test(joined)) {
-        tone = p.tone;
-        break;
-      }
-    }
-    const toneCls =
-      tone === 'urgent' ? 'border-(--color-signal-urgent) bg-(--color-signal-urgent)/5' :
-      tone === 'warn' ? 'border-(--color-signal-warn) bg-(--color-signal-warn)/5' :
-      'border-(--color-signal-info) bg-(--color-signal-info)/5';
-    return {
-      consumed: i - startIdx,
-      block: {
-        render: () => (
-          <blockquote className={`my-4 rounded-md border-l-4 px-4 py-3 ${toneCls}`}>
-            {collected.map((l, idx) => (
-              <p key={idx} className="text-dc-text leading-relaxed">{inline(l, `bq${startIdx}-${idx}`)}</p>
-            ))}
-          </blockquote>
-        ),
-      },
-    };
-  }
+    return <input {...props} />;
+  },
 
-  // Ordered list
-  if (/^\d+\.\s+/.test(line)) {
-    let i = startIdx;
-    const items: string[] = [];
-    while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
-      items.push(lines[i].replace(/^\d+\.\s+/, ''));
-      i++;
-    }
-    return {
-      consumed: i - startIdx,
-      block: {
-        render: () => (
-          <ol className="my-3 list-decimal space-y-2 pl-6 text-dc-text marker:text-(--color-brand) marker:font-semibold">
-            {items.map((it, idx) => (
-              <li key={idx} className="leading-relaxed">{inline(it, `ol${startIdx}-${idx}`)}</li>
-            ))}
-          </ol>
-        ),
-      },
-    };
-  }
-
-  // Unordered list
-  if (/^[-*]\s+/.test(line)) {
-    let i = startIdx;
-    const items: string[] = [];
-    while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
-      items.push(lines[i].replace(/^[-*]\s+/, ''));
-      i++;
-    }
-    return {
-      consumed: i - startIdx,
-      block: {
-        render: () => (
-          <ul className="my-3 list-disc space-y-2 pl-6 text-dc-text marker:text-dc-text-3">
-            {items.map((it, idx) => (
-              <li key={idx} className="leading-relaxed">{inline(it, `ul${startIdx}-${idx}`)}</li>
-            ))}
-          </ul>
-        ),
-      },
-    };
-  }
-
-  // Blank line
-  if (!line.trim()) {
-    return { consumed: 1, block: { render: () => null } };
-  }
-
-  // Paragraph: gather contiguous non-empty, non-special lines.
-  let i = startIdx;
-  const para: string[] = [];
-  while (i < lines.length) {
-    const l = lines[i];
-    if (!l.trim()) break;
-    if (/^(#{1,4})\s+/.test(l)) break;
-    if (l.startsWith('> ')) break;
-    if (/^\d+\.\s+/.test(l)) break;
-    if (/^[-*]\s+/.test(l)) break;
-    para.push(l);
-    i++;
-  }
-  return {
-    consumed: i - startIdx,
-    block: {
-      render: () => (
-        <p className="my-3 text-dc-text leading-relaxed">
-          {para.map((l, idx) => (
-            <span key={idx}>
-              {inline(l, `p${startIdx}-${idx}`)}
-              {idx < para.length - 1 ? <br /> : null}
-            </span>
-          ))}
-        </p>
-      ),
-    },
-  };
-}
+  img: ({ src, alt }) => {
+    if (!src || typeof src !== 'string') return null;
+    return (
+      // SOP images can be arbitrary widths/heights and live on Supabase
+      // signed URLs — next/image's optimisation pipeline can't be hit
+      // without a configured loader for that domain. Plain <img> is fine.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={alt ?? ''}
+        className="my-4 max-w-full rounded-md border border-[color:var(--dc-edge)]"
+      />
+    );
+  },
+};
 
 export function renderMarkdown(source: string, opts: RenderOptions = {}): ReactNode {
-  const lines = source.replace(/\r\n/g, '\n').split('\n');
-  const blocks: ReactNode[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const { block, consumed } = classifyBlock(lines, i);
-    const node = block.render();
-    if (node) blocks.push(<div key={`blk-${i}`}>{node}</div>);
-    i += Math.max(1, consumed);
-  }
-  return <div className={opts.className}>{blocks}</div>;
+  return (
+    <div className={opts.className}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {source}
+      </ReactMarkdown>
+    </div>
+  );
 }
