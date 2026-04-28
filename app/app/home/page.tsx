@@ -92,54 +92,62 @@ export default async function WorkerHomePage({ searchParams }: Props) {
 
   const deptIds = (empDepts ?? []).map((r: { department_id: string }) => r.department_id);
 
-  // Fetch visible announcements: org-wide OR in employee's departments, not expired
-  // Pinned first, then newest
+  // Fetch visible announcements: org-wide OR in employee's departments, not expired.
+  // All filters must be applied before .order() — chaining filters onto a
+  // PostgrestTransformBuilder (returned by .order()) is unreliable in postgrest-js v1.
   const now = new Date().toISOString();
-  let annQuery = supabase
-    .from("announcements")
-    .select("*, departments(name)")
-    .eq("company_id", company_id)
-    .or(`expires_at.is.null,expires_at.gt.${now}`)
-    .order("pinned", { ascending: false })
-    .order("created_at", { ascending: false });
 
-  if (deptIds.length > 0) {
-    annQuery = annQuery.or(
-      `department_id.is.null,department_id.in.(${deptIds.join(",")})`,
+  let announcements: AnnouncementWithRead[] = [];
+  try {
+    let annQuery = supabase
+      .from("announcements")
+      .select("*, departments(name)")
+      .eq("company_id", company_id)
+      .or(`expires_at.is.null,expires_at.gt.${now}`);
+
+    if (deptIds.length > 0) {
+      annQuery = annQuery.or(
+        `department_id.is.null,department_id.in.(${deptIds.join(",")})`,
+      );
+    } else {
+      annQuery = annQuery.is("department_id", null);
+    }
+
+    const { data: rawAnnouncements } = await annQuery
+      .order("pinned", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    const announcementIds = (rawAnnouncements ?? []).map(
+      (a: { id: string }) => a.id,
     );
-  } else {
-    annQuery = annQuery.is("department_id", null);
+
+    const { data: reads } =
+      memberId && announcementIds.length > 0
+        ? await supabase
+            .from("announcement_reads")
+            .select("announcement_id")
+            .eq("company_member_id", memberId)
+            .in("announcement_id", announcementIds)
+        : { data: [] };
+
+    const readSet = new Set(
+      (reads ?? []).map((r: { announcement_id: string }) => r.announcement_id),
+    );
+
+    announcements = (rawAnnouncements ?? []).map(
+      (a: {
+        id: string;
+        departments: { name: string } | null;
+        [key: string]: unknown;
+      }) => ({
+        ...(a as unknown as AnnouncementWithRead),
+        is_read: readSet.has(a.id),
+        department_name: (a.departments as { name: string } | null)?.name ?? null,
+      }),
+    );
+  } catch {
+    // Announcements unavailable (e.g. table not yet migrated) — page still renders
   }
-
-  const { data: rawAnnouncements } = await annQuery;
-
-  // Fetch read receipts for this member
-  const announcementIds = (rawAnnouncements ?? []).map(
-    (a: { id: string }) => a.id,
-  );
-
-  const { data: reads } =
-    memberId && announcementIds.length > 0
-      ? await supabase
-          .from("announcement_reads")
-          .select("announcement_id")
-          .eq("company_member_id", memberId)
-          .in("announcement_id", announcementIds)
-      : { data: [] };
-
-  const readSet = new Set((reads ?? []).map((r: { announcement_id: string }) => r.announcement_id));
-
-  const announcements: AnnouncementWithRead[] = (rawAnnouncements ?? []).map(
-    (a: {
-      id: string;
-      departments: { name: string } | null;
-      [key: string]: unknown;
-    }) => ({
-      ...(a as unknown as AnnouncementWithRead),
-      is_read: readSet.has(a.id),
-      department_name: (a.departments as { name: string } | null)?.name ?? null,
-    }),
-  );
 
   return (
     <main className="mx-auto min-h-[100dvh] max-w-2xl px-5 py-6 sm:px-6 sm:py-10" lang={lang}>
