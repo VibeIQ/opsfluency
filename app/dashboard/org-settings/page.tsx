@@ -3,12 +3,18 @@ import { Heading } from "@/components/ui/heading";
 import { Text } from "@/components/ui/text";
 
 import { BillingTab } from "./_tabs/billing-tab";
+import { ExportsTab } from "./_tabs/exports-tab";
 import { GeneralTab } from "./_tabs/general-tab";
 import { TeamTab } from "./_tabs/team-tab";
 
-type TabId = "general" | "team" | "billing";
+type TabId = "general" | "team" | "billing" | "exports";
 
-const VALID_TABS: readonly TabId[] = ["general", "team", "billing"] as const;
+const VALID_TABS: readonly TabId[] = [
+  "general",
+  "team",
+  "billing",
+  "exports",
+] as const;
 
 function resolveTab(raw: string | undefined): TabId {
   return VALID_TABS.includes(raw as TabId) ? (raw as TabId) : "general";
@@ -23,9 +29,10 @@ export default async function OrgSettingsPage({ searchParams }: PageProps) {
   const tab = resolveTab(rawTab);
 
   const tabs: TabDef[] = [
-    { id: "general", label: "General",  href: "/dashboard/org-settings?tab=general" },
-    { id: "team",    label: "Team",     href: "/dashboard/org-settings?tab=team" },
-    { id: "billing", label: "Billing",  href: "/dashboard/org-settings?tab=billing" },
+    { id: "general", label: "General", href: "/dashboard/org-settings?tab=general" },
+    { id: "team",    label: "Team",    href: "/dashboard/org-settings?tab=team" },
+    { id: "billing", label: "Billing", href: "/dashboard/org-settings?tab=billing" },
+    { id: "exports", label: "Exports", href: "/dashboard/org-settings?tab=exports" },
   ];
 
   return (
@@ -33,7 +40,8 @@ export default async function OrgSettingsPage({ searchParams }: PageProps) {
       <header>
         <Heading>Org Settings</Heading>
         <Text className="mt-1.5 max-w-2xl">
-          Manage your company profile, team members, and subscription.
+          Manage your company profile, team members, subscription, and data
+          exports.
         </Text>
       </header>
 
@@ -42,6 +50,7 @@ export default async function OrgSettingsPage({ searchParams }: PageProps) {
       {tab === "general" && <GeneralTab saved={saved === "1"} />}
       {tab === "team"    && <TeamTab />}
       {tab === "billing" && <BillingTab />}
+      {tab === "exports" && <ExportsTab />}
     </div>
   );
 }
