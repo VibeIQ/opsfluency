@@ -4,8 +4,7 @@ import { getCompanyContext } from "@/lib/auth/company-context";
 import { getCreatorScope } from "@/lib/qr/creator-scope";
 import type { AnnouncementWithMeta } from "@/lib/types/announcements";
 
-import { AnnouncementTableClient } from "./_components/AnnouncementTableClient";
-import { CreateAnnouncementClient } from "./_components/CreateAnnouncementClient";
+import { AnnouncementsManager } from "./_components/AnnouncementsManager";
 
 export const metadata = {
   title: "Announcements · OpsFluency",
@@ -74,20 +73,11 @@ export default async function AnnouncementsPage() {
         </Text>
       </header>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[400px_1fr]">
-        {/* Left — create form (always visible) */}
-        <div className="lg:self-start">
-          <CreateAnnouncementClient
-            departments={departments}
-            canPostOrgWide={scope.unrestricted}
-          />
-        </div>
-
-        {/* Right — existing announcements */}
-        <div className="min-w-0">
-          <AnnouncementTableClient announcements={announcements} />
-        </div>
-      </div>
+      <AnnouncementsManager
+        initialAnnouncements={announcements}
+        departments={departments}
+        canPostOrgWide={scope.unrestricted}
+      />
     </div>
   );
 }

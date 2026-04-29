@@ -2,13 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { Bell, Building2, ExternalLink, Globe, Pin, Trash2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { deleteAnnouncement } from "@/app/dashboard/announcements/_actions";
 import type { AnnouncementWithMeta } from "@/lib/types/announcements";
 
 interface Props {
   announcements: AnnouncementWithMeta[];
+  onDeleted: (id: string) => void;
 }
 
 function timeAgo(iso: string): string {
@@ -23,31 +23,26 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export function AnnouncementTableClient({ announcements: serverAnnouncements }: Props) {
-  const router = useRouter();
-  const [announcements, setAnnouncements] = useState(serverAnnouncements);
+export function AnnouncementTableClient({ announcements, onDeleted }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   function handleDelete(id: string) {
-    // Optimistic removal
-    setAnnouncements((prev) => prev.filter((a) => a.id !== id));
     setDeletingId(id);
 
     startTransition(async () => {
       const result = await deleteAnnouncement({ id });
-      if (!result.ok) {
-        // Revert on failure
-        setAnnouncements(serverAnnouncements);
-        setDeletingId(null);
-        router.refresh();
-      } else {
-        setDeletingId(null);
+      setDeletingId(null);
+      if (result.ok) {
+        onDeleted(id);
       }
     });
   }
 
-  if (!announcements.length) {
+  // Filter out the item being deleted for instant visual feedback
+  const visible = announcements.filter((a) => a.id !== deletingId);
+
+  if (!visible.length) {
     return (
       <div className="rounded-xl border border-dashed border-[color:var(--dc-edge)] bg-dc-surface px-6 py-12 text-center">
         <Bell className="mx-auto size-8 text-dc-text-3" strokeWidth={1.5} aria-hidden />
@@ -77,7 +72,7 @@ export function AnnouncementTableClient({ announcements: serverAnnouncements }: 
           </tr>
         </thead>
         <tbody className="divide-y divide-[color:var(--dc-edge)] bg-dc-surface">
-          {announcements.map((ann) => (
+          {visible.map((ann) => (
             <tr key={ann.id} className="group hover:bg-dc-raised/50">
               <td className="px-4 py-3">
                 <div className="flex items-start gap-2">
