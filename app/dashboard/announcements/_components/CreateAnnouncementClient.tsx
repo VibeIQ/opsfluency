@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   ANNOUNCEMENT_BODY_MAX,
   ANNOUNCEMENT_TITLE_MAX,
+  type AnnouncementWithMeta,
 } from "@/lib/types/announcements";
 
 interface DeptOption {
@@ -19,6 +20,7 @@ interface DeptOption {
 interface Props {
   departments: DeptOption[];
   canPostOrgWide: boolean;
+  onCreated?: (ann: AnnouncementWithMeta) => void;
 }
 
 const inputClass =
@@ -29,7 +31,24 @@ const labelClass =
 
 const ORG_WIDE = "__org_wide__";
 
-export function CreateAnnouncementClient({ departments, canPostOrgWide }: Props) {
+// Returns true for platforms that require a Google or Microsoft account to view.
+function requiresAccountWarning(url: string): boolean {
+  if (!url) return false;
+  try {
+    const h = new URL(url).hostname;
+    return (
+      h.includes("drive.google.com") ||
+      h.includes("docs.google.com") ||
+      h.includes("sharepoint.com") ||
+      h.includes("onedrive.live.com") ||
+      h.includes("microsoftstream.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function CreateAnnouncementClient({ departments, canPostOrgWide, onCreated }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -92,6 +111,7 @@ export function CreateAnnouncementClient({ departments, canPostOrgWide }: Props)
       : selectedDepts.map((d) => d.id);
 
     startTransition(async () => {
+      const now = new Date().toISOString();
       const results = await Promise.all(
         targets.map((dept_id) =>
           createAnnouncement({
@@ -112,7 +132,35 @@ export function CreateAnnouncementClient({ departments, canPostOrgWide }: Props)
         return;
       }
 
+      // Optimistically push each new announcement into the feed immediately.
+      // Spanish fields are filled in by the background router.refresh() below.
+      if (onCreated) {
+        results.forEach((result, i) => {
+          if (!result.ok) return;
+          const dept_id = targets[i];
+          const dept = departments.find((d) => d.id === dept_id);
+          onCreated({
+            id: result.data.id,
+            company_id: "",
+            created_by: "",
+            department_id: dept_id,
+            department_name: dept?.name ?? null,
+            title_en: title,
+            title_es: "",
+            body_en: body,
+            body_es: "",
+            priority,
+            pinned,
+            expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
+            link_url: linkUrl.trim() || null,
+            created_at: now,
+            updated_at: now,
+          });
+        });
+      }
+
       reset();
+      // Refresh in background to fill in Spanish translations
       router.refresh();
     });
   }
@@ -285,8 +333,16 @@ export function CreateAnnouncementClient({ departments, canPostOrgWide }: Props)
             disabled={isPending}
           />
           <p className="mt-1 text-xs text-dc-text-3">
-            YouTube, Loom, and Vimeo URLs embed automatically. Google Drive, OneDrive, and SharePoint links open in a new tab.
+            YouTube, Loom, and Vimeo URLs embed automatically in the worker app. Other links open in the browser.
           </p>
+          {requiresAccountWarning(linkUrl) && (
+            <div className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/8 px-2.5 py-2">
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-amber-500" strokeWidth={2} aria-hidden />
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Workers will need a Google or Microsoft account to open this link. Consider uploading to YouTube, Loom, or Vimeo for video content — those embed directly and require no account.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Expiry */}
