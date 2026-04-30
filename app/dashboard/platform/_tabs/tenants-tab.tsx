@@ -1,7 +1,9 @@
-import { Lock, Sparkles, Unlock, Users } from "lucide-react";
+import { Clock, Lock, Sparkles, Unlock, Users } from "lucide-react";
 
 import { startImpersonation } from "@/app/dashboard/_actions/impersonation";
 import { lockMember, unlockMember } from "@/app/dashboard/platform/_actions/members";
+import { MemberDeleteButton } from "@/app/dashboard/platform/_tabs/member-delete-button";
+import { TenantDeleteDialog } from "@/app/dashboard/platform/_tabs/tenant-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/text";
 import { getSuperAdminContext } from "@/lib/auth/super-admin-context";
@@ -14,6 +16,7 @@ interface TenantRow {
   is_demo: boolean;
   created_at: string;
   member_count: number;
+  last_activity_at: string | null;
 }
 
 interface MemberRow {
@@ -39,9 +42,24 @@ async function loadTenants(): Promise<TenantRow[]> {
     .select("company_id");
   if (memberError) throw memberError;
 
+  // Most recent QR scan per company — used as the "last activity" signal.
+  const { data: recentScans } = await supabase
+    .from("qr_scans")
+    .select("company_id, scanned_at")
+    .in("company_id", companies.map((c) => c.id))
+    .order("scanned_at", { ascending: false });
+
   const counts = new Map<string, number>();
   for (const m of members ?? []) {
     counts.set(m.company_id, (counts.get(m.company_id) ?? 0) + 1);
+  }
+
+  // Keep only the most recent scan timestamp per company.
+  const lastScan = new Map<string, string>();
+  for (const s of recentScans ?? []) {
+    if (!lastScan.has(s.company_id)) {
+      lastScan.set(s.company_id, s.scanned_at);
+    }
   }
 
   return companies.map((c) => ({
@@ -51,6 +69,7 @@ async function loadTenants(): Promise<TenantRow[]> {
     is_demo: Boolean(c.is_demo),
     created_at: c.created_at,
     member_count: counts.get(c.id) ?? 0,
+    last_activity_at: lastScan.get(c.id) ?? null,
   }));
 }
 
@@ -65,6 +84,19 @@ async function loadMembers(companyId: string): Promise<MemberRow[]> {
     .order("joined_at", { ascending: true });
   if (error) throw error;
   return (data ?? []) as MemberRow[];
+}
+
+function formatRelativeTime(isoString: string): string {
+  const diff = Date.now() - new Date(isoString).getTime();
+  const minutes = Math.floor(diff / 60_000);
+  const hours = Math.floor(diff / 3_600_000);
+  const days = Math.floor(diff / 86_400_000);
+
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 30) return `${days}d ago`;
+  return new Date(isoString).toLocaleDateString();
 }
 
 interface TenantsTabProps {
@@ -99,7 +131,9 @@ export async function TenantsTab({ expandedId }: TenantsTabProps) {
         Click{" "}
         <strong className="text-dc-text-2">Impersonate</strong>{" "}
         to temporarily operate as that tenant&apos;s admin. Every start and
-        stop is recorded in the impersonation log.
+        stop is recorded in the impersonation log. Use{" "}
+        <strong className="text-dc-text-2">Delete</strong>{" "}
+        to permanently wipe a tenant — type the company name to confirm.
       </p>
 
       <ul className="divide-y divide-[color:var(--dc-edge)] overflow-hidden rounded-xl border border-[color:var(--dc-edge)] bg-dc-surface shadow-xs">
@@ -119,15 +153,29 @@ export async function TenantsTab({ expandedId }: TenantsTabProps) {
                     </Badge>
                   ) : null}
                 </div>
-                <p className="mt-1 text-sm text-dc-text-2">
-                  {t.member_count} member{t.member_count === 1 ? "" : "s"}
-                  {" · "}
-                  {t.phone ?? "no phone"}
-                  {" · "}
-                  created {new Date(t.created_at).toLocaleDateString()}
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-dc-text-2">
+                  <span>
+                    {t.member_count} member{t.member_count === 1 ? "" : "s"}
+                  </span>
+                  <span aria-hidden className="text-dc-text-3">·</span>
+                  <span>{t.phone ?? "no phone"}</span>
+                  <span aria-hidden className="text-dc-text-3">·</span>
+                  <span>created {new Date(t.created_at).toLocaleDateString()}</span>
+                  <span aria-hidden className="text-dc-text-3">·</span>
+                  {t.last_activity_at ? (
+                    <span className="inline-flex items-center gap-1 text-dc-text-2">
+                      <Clock className="size-3 text-dc-text-3" strokeWidth={2} />
+                      active {formatRelativeTime(t.last_activity_at)}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-dc-text-3">
+                      <Clock className="size-3" strokeWidth={2} />
+                      no activity
+                    </span>
+                  )}
                 </p>
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <code className="font-mono text-xs text-dc-text-3">{t.id}</code>
 
                 {/* Toggle member list */}
@@ -158,6 +206,8 @@ export async function TenantsTab({ expandedId }: TenantsTabProps) {
                     Impersonate
                   </button>
                 </form>
+
+                <TenantDeleteDialog companyId={t.id} companyName={t.name} />
               </div>
             </div>
 
@@ -183,8 +233,13 @@ export async function TenantsTab({ expandedId }: TenantsTabProps) {
                               Locked {new Date(m.locked_at).toLocaleDateString()}
                             </span>
                           )}
+                          {m.joined_at && (
+                            <span className="text-xs text-dc-text-3">
+                              joined {new Date(m.joined_at).toLocaleDateString()}
+                            </span>
+                          )}
                         </div>
-                        <div className="shrink-0">
+                        <div className="flex shrink-0 items-center gap-2">
                           {m.locked_at ? (
                             <form action={unlockMember}>
                               <input type="hidden" name="member_id" value={m.id} />
@@ -210,6 +265,12 @@ export async function TenantsTab({ expandedId }: TenantsTabProps) {
                               </button>
                             </form>
                           )}
+
+                          <MemberDeleteButton
+                            memberId={m.id}
+                            companyId={t.id}
+                            clerkUserId={m.clerk_user_id}
+                          />
                         </div>
                       </li>
                     ))}
