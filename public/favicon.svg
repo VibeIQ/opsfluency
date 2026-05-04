@@ -1,42 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <style>
-    .badge { fill: #14B8A6; }
-    @media (prefers-color-scheme: dark) {
-      .badge { fill: #14B8A6; }
-    }
-  </style>
+  <defs>
+    <clipPath id="badge-clip">
+      <rect width="32" height="32" rx="7"/>
+    </clipPath>
+  </defs>
 
   <!-- Teal rounded-square badge -->
-  <rect class="badge" width="32" height="32" rx="7"/>
+  <rect fill="#14B8A6" width="32" height="32" rx="7"/>
 
-  <!-- Speech icon (Lucide), scaled from 24x24 viewBox into ~18px centred in 32px badge -->
-  <g transform="translate(7, 7) scale(0.75)">
-    <!-- Body / figure path -- filled solid, extended to y=24 so it anchors to badge bottom -->
-    <path
-      d="M8.8 20v-4.1l1.9.2a2.3 2.3 0 0 0 2.164-2.1V8.3A5.37 5.37 0 0 0 2 8.25c0 2.8.656 3.054 1 4.55a5.77 5.77 0 0 1 .029 2.758L2 24H8.8Z"
-      fill="white"
-      stroke="white"
-      stroke-width="1.5"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-    <!-- Inner arc -->
-    <path
-      d="M17 15a3.5 3.5 0 0 0-.025-4.975"
-      stroke="white"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      fill="none"
-    />
-    <!-- Outer arc -->
-    <path
-      d="M19.8 17.8a7.5 7.5 0 0 0 .003-10.603"
-      stroke="white"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      fill="none"
-    />
+  <!-- Speech icon bottom-aligned, clipped to badge for clean bleed -->
+  <g clip-path="url(#badge-clip)">
+    <g transform="translate(3, 2) scale(1.08)">
+      <!-- Body -- fill only, extended to y=30 for clean clip bleed -->
+      <path
+        d="M8.8 20v-4.1l1.9.2a2.3 2.3 0 0 0 2.164-2.1V8.3A5.37 5.37 0 0 0 2 8.25c0 2.8.656 3.054 1 4.55a5.77 5.77 0 0 1 .029 2.758L2 30H8.8Z"
+        fill="white"
+      />
+      <!-- Head circle with thin teal border -->
+      <circle cx="6.8" cy="5.8" r="3.2" fill="white" stroke="#14B8A6" stroke-width="0.75"/>
+      <!-- Inner arc -->
+      <path
+        d="M17 15a3.5 3.5 0 0 0-.025-4.975"
+        stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"
+      />
+      <!-- Outer arc -->
+      <path
+        d="M19.8 17.8a7.5 7.5 0 0 0 .003-10.603"
+        stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"
+      />
+    </g>
   </g>
 </svg>
