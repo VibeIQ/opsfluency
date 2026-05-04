@@ -1,24 +1,35 @@
--- HR Contacts — company-scoped directory of people workers can reach
--- for HR questions. Rendered as contact cards at the bottom of any
--- SOP using the "onboarding" template.
+-- Replaces the initial hr_contacts migration with a richer schema.
+-- Also adds contact_phone to company_members so department managers
+-- can expose a phone number that workers can tap.
 --
--- Schema is intentionally minimal for MVP: name + title + email + phone.
--- photo_url is nullable (many companies won't upload headshots yet).
--- sort_order lets managers control card sequence without drag-and-drop
--- complexity — lower numbers appear first.
+-- Changes:
+--   1. company_members gets contact_phone (nullable, shown when role = manager).
+--   2. hr_contacts gets category + is_primary — HR contacts are institutional
+--      (Benefits, Payroll, General) rather than person-linked. Surfaced in
+--      the HR department's members tab and rendered in onboarding-template SOPs.
 
 begin;
 
--- ── 1. Table ───────────────────────────────────────────────────────────────
+-- ── 1. Manager contact phone on company_members ───────────────────────────
+
+alter table company_members
+  add column if not exists contact_phone text;
+
+comment on column company_members.contact_phone is
+  'Phone number exposed to workers when the member role is manager.';
+
+-- ── 2. hr_contacts table ──────────────────────────────────────────────────
 
 create table hr_contacts (
   id           uuid        primary key default gen_random_uuid(),
   company_id   uuid        not null references companies(id) on delete cascade,
   name         text        not null check (char_length(name) between 1 and 100),
   title        text        not null check (char_length(title) between 1 and 100),
+  category     text        not null default 'General Questions'
+                           check (char_length(category) between 1 and 80),
   email        text,
   phone        text,
-  photo_url    text,
+  is_primary   boolean     not null default false,
   sort_order   integer     not null default 0,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
@@ -27,21 +38,19 @@ create table hr_contacts (
 create index hr_contacts_company_id_idx on hr_contacts (company_id, sort_order);
 
 comment on table hr_contacts is
-  'HR contacts shown as cards at the bottom of onboarding-template SOPs.';
+  'Institutional HR contacts (Benefits, Payroll, General Questions …).
+   Shown in the HR department members tab and as cards at the bottom of
+   onboarding-template SOPs. Not tied to company_members rows.';
 
--- ── 2. updated_at trigger ─────────────────────────────────────────────────
+-- ── 3. updated_at trigger ─────────────────────────────────────────────────
 
 create trigger hr_contacts_updated_at
   before update on hr_contacts
   for each row execute function set_updated_at();
 
--- ── 3. RLS ────────────────────────────────────────────────────────────────
+-- ── 4. RLS ────────────────────────────────────────────────────────────────
 
 alter table hr_contacts enable row level security;
-
--- Managers and admins can read, insert, update, delete.
--- Employees can only read (worker PWA shows contact cards).
--- Super admins bypass via is_super_admin().
 
 create policy hr_contacts_select on hr_contacts
   for select to authenticated

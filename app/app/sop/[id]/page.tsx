@@ -180,7 +180,7 @@ export default async function WorkerSopPage({ params, searchParams }: Props) {
     try {
       const { data: contactRows } = await supabase
         .from('hr_contacts')
-        .select('id, name, title, email, phone, photo_url')
+        .select('id, name, title, category, email, phone, is_primary')
         .eq('company_id', company_id)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true });
