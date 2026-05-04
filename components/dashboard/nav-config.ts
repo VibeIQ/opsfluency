@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   Tag,
   User,
-  UserCircle,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -94,7 +93,6 @@ const settings: NavSection = {
     { href: "/dashboard/my-settings",  label: "My Settings",  icon: User,           match: "prefix", visibility: { member: ["manager"] } },
     { href: "/dashboard/employees",    label: "Employees",    icon: Users,          match: "prefix", visibility: { member: ["manager"] } },
     { href: "/dashboard/departments",  label: "Departments",  icon: Building2,      match: "prefix", visibility: { member: ["manager"] } },
-    { href: "/dashboard/hr-contacts",  label: "HR Contacts",  icon: UserCircle,     match: "prefix", visibility: { member: ["admin"] } },
     { href: "/dashboard/labels",       label: "Labels",       icon: Tag,             match: "prefix", visibility: { member: ["admin"] } },
   ],
 };

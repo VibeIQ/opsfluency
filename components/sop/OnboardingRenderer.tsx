@@ -4,9 +4,10 @@ export interface HrContact {
   id: string;
   name: string;
   title: string;
+  category: string;
   email: string | null;
   phone: string | null;
-  photo_url: string | null;
+  is_primary: boolean;
 }
 
 interface Props {
@@ -24,26 +25,20 @@ function ContactCard({ contact }: { contact: HrContact }) {
     .toUpperCase();
 
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-[color:var(--dc-edge)] bg-dc-raised p-4">
-      {contact.photo_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={contact.photo_url}
-          alt=""
-          className="size-11 shrink-0 rounded-full object-cover"
-        />
-      ) : (
-        <div
-          className="flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-sm font-semibold text-emerald-400"
-          aria-hidden="true"
-        >
-          {initials}
-        </div>
-      )}
+    <div className={`flex items-start gap-3 rounded-xl border p-4 ${contact.is_primary ? "border-(--color-brand)/30 bg-(--color-brand)/5" : "border-[color:var(--dc-edge)] bg-dc-raised"}`}>
+      <div
+        className="flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-sm font-semibold text-emerald-400"
+        aria-hidden="true"
+      >
+        {initials}
+      </div>
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-dc-text">{contact.name}</p>
         <p className="truncate text-xs text-dc-text-3">{contact.title}</p>
+        <span className="mt-1 inline-block rounded-full border border-[color:var(--dc-edge)] bg-dc-surface px-2 py-0.5 text-[10px] font-medium text-dc-text-2">
+          {contact.category}
+        </span>
 
         {(contact.email || contact.phone) && (
           <div className="mt-2 flex flex-wrap gap-2">
