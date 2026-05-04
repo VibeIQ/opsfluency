@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { BottomNav } from "@/components/app/bottom-nav";
 import { PreviewBanner } from "@/components/app/preview-banner";
+import { ScrollToTopButton } from "@/components/app/scroll-to-top";
 import { AuthError, getCompanyContext } from "@/lib/auth/company-context";
 import { isCurrentUserSuperAdmin } from "@/lib/auth/super-admin-context";
 import type { WorkerLanguage } from "@/lib/types/sop";
@@ -86,6 +87,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       {/* Pad the bottom so page content is never hidden behind the nav. */}
       <div className="pb-20">{children}</div>
       <BottomNav lang={navLang} />
+      {!isEmbedded && <ScrollToTopButton />}
     </>
   );
 }
