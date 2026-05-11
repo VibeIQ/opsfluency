@@ -28,14 +28,14 @@ import { ArchiveButton } from './_components/ArchiveButton';
 import { PhoneFrame } from './_components/PhoneFrame';
 import { SuperAdminDangerZone } from './_components/SuperAdminDangerZone';
 import { AudienceClient } from './_components/AudienceClient';
-import { VideoClient } from './_components/VideoClient';
+import { MediaClient, type SopImageRow } from './_components/MediaClient';
 import { getCreatorScope } from '@/lib/qr/creator-scope';
 import type { Role } from '@/lib/auth/company-context';
 import type { SopTemplate } from '@/lib/types/sop';
 import type { TemplateRecommendation } from '@/lib/ai/template-recommender';
 import { TemplatePickerClient } from './_components/TemplatePickerClient';
 
-const VALID_TABS = ['original', 'english', 'spanish', 'app', 'audience', 'video', 'versions', 'qr'] as const;
+const VALID_TABS = ['original', 'english', 'spanish', 'app', 'audience', 'media', 'versions', 'qr'] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 const STATUS_BADGE: Record<SopStatus, { label: string; color: Parameters<typeof Badge>[0]['color'] }> = {
@@ -195,6 +195,20 @@ export default async function SopDetailPage({ params, searchParams }: PageProps)
     console.warn('[sop detail] video_url read failed', { id, message: err instanceof Error ? err.message : String(err) });
   }
 
+  // sop_images lives behind migration 20260511000001. Read defensively.
+  let sopImages: SopImageRow[] = [];
+  try {
+    const { data: imgRows } = await supabase
+      .from('sop_images')
+      .select('id, storage_path, caption_en, caption_es, sort_order')
+      .eq('sop_id', id)
+      .eq('company_id', company_id)
+      .order('sort_order', { ascending: true });
+    sopImages = (imgRows ?? []) as SopImageRow[];
+  } catch (err) {
+    console.warn('[sop detail] sop_images read failed', { id, message: err instanceof Error ? err.message : String(err) });
+  }
+
   // template + template_recommendation live behind migration 20260504000001.
   // Read defensively so a missing column never breaks the detail page.
   let sopTemplate: SopTemplate | null = null;
@@ -221,7 +235,7 @@ export default async function SopDetailPage({ params, searchParams }: PageProps)
     { id: 'spanish',  label: 'Spanish',    href: `/dashboard/sops/${id}?tab=spanish`, disabled: !latest?.content_es },
     { id: 'app',      label: 'App view',   href: `/dashboard/sops/${id}?tab=app`, disabled: !hasWorkerContent },
     { id: 'audience', label: 'Audience',   href: `/dashboard/sops/${id}?tab=audience` },
-    { id: 'video',    label: 'Video',      href: `/dashboard/sops/${id}?tab=video` },
+    { id: 'media',    label: 'Media',      href: `/dashboard/sops/${id}?tab=media` },
     { id: 'versions', label: 'Versions',   href: `/dashboard/sops/${id}?tab=versions` },
     { id: 'qr',       label: 'QR',         href: `/dashboard/sops/${id}?tab=qr`, disabled: !qrRow },
   ];
@@ -343,8 +357,8 @@ export default async function SopDetailPage({ params, searchParams }: PageProps)
         />
       )}
 
-      {tab === 'video' && (
-        <VideoClient sopId={id} initialVideoUrl={sopVideoUrl} />
+      {tab === 'media' && (
+        <MediaClient sopId={id} initialVideoUrl={sopVideoUrl} images={sopImages} />
       )}
 
       {tab === 'versions' && (

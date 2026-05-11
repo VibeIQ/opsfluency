@@ -7,6 +7,7 @@ import { TemplateRenderer } from '@/components/sop/TemplateRenderer';
 import type { HrContact } from '@/components/sop/OnboardingRenderer';
 import { LanguageToggleClient } from './_components/LanguageToggleClient';
 import { VideoButtonClient } from './_components/VideoButtonClient';
+import { MediaScrollButton } from './_components/MediaScrollButton';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -108,6 +109,27 @@ export default async function WorkerSopPage({ params, searchParams }: Props) {
     // migration not yet applied — no video button shown
   }
 
+  // sop_images lives behind migration 20260511000001 — read defensively.
+  interface SopImageWorkerRow {
+    id: string;
+    storage_path: string;
+    caption_en: string | null;
+    caption_es: string | null;
+    sort_order: number;
+  }
+  let sopImages: SopImageWorkerRow[] = [];
+  const supabasePublicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+  try {
+    const { data: imgRows } = await supabase
+      .from('sop_images')
+      .select('id, storage_path, caption_en, caption_es, sort_order')
+      .eq('sop_id', id)
+      .order('sort_order', { ascending: true });
+    sopImages = (imgRows ?? []) as SopImageWorkerRow[];
+  } catch {
+    // migration not yet applied — no media gallery shown
+  }
+
   const { data: memberRow } = await supabase
     .from('company_members')
     .select('id')
@@ -199,15 +221,52 @@ export default async function WorkerSopPage({ params, searchParams }: Props) {
         <LanguageToggleClient sopId={id} current={lang} />
       </header>
 
-      {sopVideoUrl && (
-        <div className="mb-5">
-          <VideoButtonClient videoUrl={sopVideoUrl} sopTitle={sop.title} lang={lang} />
+      {(sopVideoUrl || sopImages.length > 0) && (
+        <div className="mb-5 flex flex-col gap-2">
+          {sopVideoUrl && (
+            <VideoButtonClient videoUrl={sopVideoUrl} sopTitle={sop.title} lang={lang} />
+          )}
+          {sopImages.length > 0 && (
+            <MediaScrollButton lang={lang} />
+          )}
         </div>
       )}
 
       <article className="text-[17px] leading-relaxed">
         <TemplateRenderer content={content} template={sopTemplate} lang={lang} hrContacts={hrContacts} />
       </article>
+
+      {sopImages.length > 0 && (
+        <section
+          id="sop-media"
+          aria-label={lang === 'es' ? 'Medios' : 'Media'}
+          className="mt-8 border-t border-[color:var(--dc-edge)] pt-6"
+        >
+          <h2 className="mb-4 text-lg font-semibold text-dc-text">
+            {lang === 'es' ? 'Medios' : 'Media'}
+          </h2>
+          <div className="flex flex-col gap-6">
+            {sopImages.map((img) => {
+              const caption = lang === 'es' ? (img.caption_es ?? img.caption_en) : img.caption_en;
+              const publicUrl = `${supabasePublicUrl}/storage/v1/object/public/sop-images/${img.storage_path}`;
+              return (
+                <figure key={img.id} className="flex flex-col gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={publicUrl}
+                    alt={caption ?? ''}
+                    className="w-full rounded-lg object-contain"
+                    loading="lazy"
+                  />
+                  {caption && (
+                    <figcaption className="text-sm text-dc-text-2">{caption}</figcaption>
+                  )}
+                </figure>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </main>
   );
 }

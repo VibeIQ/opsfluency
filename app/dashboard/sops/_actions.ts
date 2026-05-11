@@ -20,6 +20,7 @@ import type { GlossaryRow } from '@/lib/types/glossary';
 // suggest-translation feature; runTranslation switched to the structured
 // path below to preserve mdast scaffolding.
 import { translateMarkdownStructured } from '@/lib/translation/structured';
+import { translateMarkdown } from '@/lib/translation/google';
 import { createQrCode } from '@/lib/qr/generate';
 import { isWithinCreatorScope } from '@/lib/qr/audience';
 import { getCreatorScope } from '@/lib/qr/creator-scope';
@@ -1033,7 +1034,183 @@ export async function uploadNewVersion(raw: unknown): Promise<ActionResult<{ ver
   }
 }
 
-// ── 9. Worker preferred language ──────────────────────────────────────────────
+// ── 9. SOP Images ────────────────────────────────────────────────────────────
+
+const SOP_IMAGES_BUCKET = 'sop-images';
+const SOP_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+const SOP_IMAGE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+
+const UploadSopImageSchema = z.object({
+  sop_id: z.string().uuid(),
+  filename: z.string().min(1).max(300),
+  mime_type: z.enum(SOP_IMAGE_MIME_TYPES),
+  file_base64: z.string().min(1),
+});
+
+export async function uploadSopImage(
+  raw: unknown,
+): Promise<ActionResult<{ id: string; storage_path: string }>> {
+  try {
+    const { supabase, company_id } = await getCompanyContext('manager');
+    const input = UploadSopImageSchema.parse(raw);
+
+    const fileBytes = Buffer.from(input.file_base64, 'base64');
+    if (fileBytes.byteLength === 0) return fail('INVALID_INPUT', 'Empty file');
+    if (fileBytes.byteLength > SOP_IMAGE_MAX_BYTES) {
+      return fail('INVALID_INPUT', 'Image exceeds 10 MB');
+    }
+
+    const { data: sop } = await supabase
+      .from('sops')
+      .select('id')
+      .eq('id', input.sop_id)
+      .eq('company_id', company_id)
+      .maybeSingle();
+    if (!sop) return fail('NOT_FOUND');
+
+    const { count } = await supabase
+      .from('sop_images')
+      .select('id', { count: 'exact', head: true })
+      .eq('sop_id', input.sop_id);
+    if ((count ?? 0) >= 20) {
+      return fail('INVALID_INPUT', 'Maximum 20 images per SOP');
+    }
+
+    const { data: lastImg } = await supabase
+      .from('sop_images')
+      .select('sort_order')
+      .eq('sop_id', input.sop_id)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const sort_order = ((lastImg as { sort_order?: number } | null)?.sort_order ?? -1) + 1;
+
+    const imageId = crypto.randomUUID();
+    const ext = input.filename.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const path = `${company_id}/${input.sop_id}/${imageId}.${ext}`;
+
+    const admin = getAdminClient();
+    const { error: upErr } = await admin.storage
+      .from(SOP_IMAGES_BUCKET)
+      .upload(path, fileBytes, { contentType: input.mime_type, upsert: false });
+    if (upErr) return fail('INTERNAL', `Upload failed: ${upErr.message}`);
+
+    const { data: img, error: imgErr } = await supabase
+      .from('sop_images')
+      .insert({ sop_id: input.sop_id, company_id, storage_path: path, sort_order })
+      .select('id, storage_path')
+      .single();
+    if (imgErr || !img) {
+      await admin.storage.from(SOP_IMAGES_BUCKET).remove([path]);
+      return fail('INTERNAL', imgErr?.message);
+    }
+
+    revalidatePath(`/dashboard/sops/${input.sop_id}`);
+    revalidatePath(`/app/sop/${input.sop_id}`);
+    return {
+      ok: true,
+      data: { id: img.id as string, storage_path: img.storage_path as string },
+    };
+  } catch (e) {
+    const handled = handleAuthError<{ id: string; storage_path: string }>(e);
+    if (handled) return handled;
+    throw e;
+  }
+}
+
+const DeleteSopImageSchema = z.object({
+  image_id: z.string().uuid(),
+  sop_id: z.string().uuid(),
+});
+
+export async function deleteSopImage(raw: unknown): Promise<ActionResult> {
+  try {
+    const { supabase, company_id } = await getCompanyContext('manager');
+    const input = DeleteSopImageSchema.parse(raw);
+
+    const { data: img } = await supabase
+      .from('sop_images')
+      .select('id, storage_path')
+      .eq('id', input.image_id)
+      .eq('sop_id', input.sop_id)
+      .eq('company_id', company_id)
+      .maybeSingle();
+    if (!img) return fail('NOT_FOUND');
+
+    const admin = getAdminClient();
+    await admin.storage.from(SOP_IMAGES_BUCKET).remove([img.storage_path as string]);
+
+    const { error: delErr } = await supabase
+      .from('sop_images')
+      .delete()
+      .eq('id', input.image_id)
+      .eq('company_id', company_id);
+    if (delErr) return fail('INTERNAL', delErr.message);
+
+    revalidatePath(`/dashboard/sops/${input.sop_id}`);
+    revalidatePath(`/app/sop/${input.sop_id}`);
+    return { ok: true };
+  } catch (e) {
+    const handled = handleAuthError(e);
+    if (handled) return handled;
+    throw e;
+  }
+}
+
+const UpdateSopImageCaptionSchema = z.object({
+  image_id: z.string().uuid(),
+  sop_id: z.string().uuid(),
+  caption_en: z.string().max(500).nullable(),
+});
+
+export async function updateSopImageCaption(
+  raw: unknown,
+): Promise<ActionResult<{ caption_es: string | null }>> {
+  try {
+    const { supabase, company_id } = await getCompanyContext('manager');
+    const input = UpdateSopImageCaptionSchema.parse(raw);
+
+    const { data: img } = await supabase
+      .from('sop_images')
+      .select('id')
+      .eq('id', input.image_id)
+      .eq('sop_id', input.sop_id)
+      .eq('company_id', company_id)
+      .maybeSingle();
+    if (!img) return fail('NOT_FOUND');
+
+    let caption_es: string | null = null;
+    if (input.caption_en?.trim()) {
+      const glossary = await loadGlossary(supabase, company_id);
+      const result = await translateMarkdown({
+        markdown: input.caption_en,
+        source: 'en',
+        target: 'es',
+        glossary,
+        sopId: input.sop_id,
+        companyId: company_id,
+      });
+      if (result.ok) caption_es = result.translated;
+    }
+
+    const { error: updErr } = await supabase
+      .from('sop_images')
+      .update({ caption_en: input.caption_en ?? null, caption_es })
+      .eq('id', input.image_id)
+      .eq('company_id', company_id);
+    if (updErr) return fail('INTERNAL', updErr.message);
+
+    revalidatePath(`/dashboard/sops/${input.sop_id}`);
+    revalidatePath(`/app/sop/${input.sop_id}`);
+    return { ok: true, data: { caption_es } };
+  } catch (e) {
+    const handled = handleAuthError<{ caption_es: string | null }>(e);
+    if (handled) return handled;
+    throw e;
+  }
+}
+
+// ── 10. Worker preferred language ─────────────────────────────────────────────
 
 const SetLanguagePreferenceSchema = z.object({
   language: z.enum(WORKER_LANGUAGES),
